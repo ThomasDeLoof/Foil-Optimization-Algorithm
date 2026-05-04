@@ -1,5 +1,3 @@
-<img width="817" height="639" alt="Foil_Downstream" src="https://github.com/user-attachments/assets/7a86bc57-3825-4208-8c48-707ca73e68e5" />
-<img width="878" height="570" alt="Foil_Cp" src="https://github.com/user-attachments/assets/833c57c3-0a39-4e65-aa73-887122839530" />
 # Foil Geometry Optimizer (NACA-based)
 
 ## Description
