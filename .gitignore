@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.env
+
+# Systèmes
+.DS_Store
+
+# Dossiers de sortie temporaires (facultatif)
+outputs/
