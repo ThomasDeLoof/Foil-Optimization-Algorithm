@@ -17,7 +17,7 @@ To overcome the limitations of the previous model, I implemented the following:
 * **Empirical Validation:** The model was calibrated to converge toward known, proven foil geometries. By benchmarking the output against established designs, I ensured that the generated foils remain within realistic and efficient operating bounds.
 
 ## Optimization Methodology & Limitations
-This script relies on numerical optimization (IPOPT). Due to the highly non-linear nature of hydrofoil aerodynamics:
+This script relies on numerical optimization (IPOPT), and the hydrodynamic calculations were made with the AeroSandBox library (used within a "water atomsphere"). Due to the highly non-linear nature of hydrofoil aerodynamics:
 * **Sensitivity:** The solver is highly sensitive to initial conditions. For specific design targets (e.g., pumping vs. high-speed windsurf), "initial guesses" might require fine-tuning to ensure convergence. As constraints seem very tight on the optimisation, the model requires fine calibration of the initial parameters to converge towards physically viable solutions, and often it doesn't find any.
 * **Empirical Calibration:** The tool is designed as a design-aid rather than a fully automated generator. It requires an iterative approach to find the optimal balance between performance and structural constraints.
 
