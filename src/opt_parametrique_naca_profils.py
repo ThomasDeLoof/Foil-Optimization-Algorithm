@@ -446,7 +446,7 @@ def evaluate_design(root_naca_profile, tip_naca_profile, reflex_angle_deg, perfo
             static_margin = - (dCm / (dCL + 1e-9))
         except Exception as e_sm:
             # Si le calcul SM plante, on ne tue pas le programme, on affiche juste l'erreur
-            print(f"⚠️ Warning SM: {e_sm}")
+            print(f"Warning SM: {e_sm}")
             static_margin = -9.99 # Code d'erreur visible
         
         # --- EXPORT ET BILAN DÉTAILLÉ (Uniquement pour le meilleur profil) ---
@@ -473,8 +473,7 @@ def evaluate_design(root_naca_profile, tip_naca_profile, reflex_angle_deg, perfo
             # Charge Alaire (Wing Loading)
             wing_loading = weight / sol(wing.area()) # N/m2
 
-            # 2. AFFICHAGE DU RAPPORT COMPLET 
-            # --- EXPORT ET BILAN DÉTAILLÉ (Version Corrigée & Sécurisée) ---
+            # --- EXPORT ET BILAN DÉTAILLÉ  ---
         if perform_export:
             # 1. Extraction des valeurs (On sort tout du 'sol' avant d'afficher)
             try:
@@ -510,7 +509,7 @@ def evaluate_design(root_naca_profile, tip_naca_profile, reflex_angle_deg, perfo
                 val_vh = float(sol(v_h))
                 val_fuselage_length = float(sol(fuselage_length)) * 100
 
-                # 2. AFFICHAGE (Maintenant ça va passer car ce sont des floats purs)
+                # 2. AFFICHAGE 
                 print("\n" + "="*80)
                 print(f"FICHE TECHNIQUE FINALE : {CASE.upper()} - {root_naca_profile.upper()}")
                 print("="*80)
@@ -626,7 +625,7 @@ def evaluate_design(root_naca_profile, tip_naca_profile, reflex_angle_deg, perfo
                                 y = r * np.cos(theta)
                                 z = r * np.sin(theta)
                                 f.write(f" {x_local:.6f}  {y:.6f}  {z:.6f}\n")
-                    print(f"\n✅ Fichier coordonnées du fuselage généré : {filepath}")
+                    print(f"\nFichier coordonnées du fuselage généré : {filepath}")
 
                 # --- MainWing Sections ---
                 wing_optim = sol(wing)
@@ -657,13 +656,13 @@ def evaluate_design(root_naca_profile, tip_naca_profile, reflex_angle_deg, perfo
                 xml_path = os.path.join(out_dir, f"{CASE}_{root_naca_profile}_{now_str}_plane.xml")
                 airplane_export.export_XFLR5_xml(xml_path)
 
-                print(f"\n✅ Fichier 3D XML généré dans {out_dir}")
-                print(f"✅ Profils .dat générés dans : {airfoils_dir}")
+                print(f"\nFichier 3D XML généré dans {out_dir}")
+                print(f"Profils .dat générés dans : {airfoils_dir}")
                 #export_body(fuselage_obj, filename=f"{CASE}_fuselage_{fuselage_length}m.txt")
                 print("="*80 + "\n")
 
             except Exception as e_print:
-                print(f"\n❌ Erreur DEBUG Affichage : {e_print}")
+                print(f"\nErreur DEBUG Affichage : {e_print}")
                 import traceback
                 traceback.print_exc()
             
@@ -694,13 +693,12 @@ best_config = ""
 for c in cambrures:
     for t_root in epaisseurs_root:
         for reflex in angle_reflex:
-            # --- LOGIQUE SMART LINK ---
             # Le saumon est toujours plus fin que l'emplanture pour réduire la traînée
             t_tip = t_root - 3  # ex: Root 15% -> Tip 12%
             
              # Construction des profils NACA
             root_name = f"naca{c}4{t_root:02d}"
-            tip_name = f"naca{c}4{t_tip:02d}"  # Saumon toujours plus fin
+            tip_name = f"naca{c}4{t_tip:02d}" 
             
             print(f"Test: Root {root_name} / Tip {tip_name} ... / reflex : {reflex}° | ", end="")
             
@@ -708,14 +706,14 @@ for c in cambrures:
             res = evaluate_design(root_name, tip_name, reflex, perform_export=False)
             
             if res["success"]:
-                print(f"✅ OK | Finesse: {res['finesse']:.2f} | Surf: {res['surface']:.0f} | Stab: {res['stab_force']:.1f}N")
+                print(f"OK | Finesse: {res['finesse']:.2f} | Surf: {res['surface']:.0f} | Stab: {res['stab_force']:.1f}N")
                 
                 # Conservation du meilleur résultat
                 if best_run is None or res["finesse"] > best_run["finesse"]:
                     best_run = res
                     best_config = (root_name, tip_name, reflex)
             else:
-                print("❌ Infeasible")
+                print("Infeasible")
 
 # ========================================================================================
 # 5. RÉSULTAT FINAL
