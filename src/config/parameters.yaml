@@ -1,0 +1,137 @@
+# =============================================================================
+# physics.yaml — Paramètres physiques et géométriques du système foil
+# =============================================================================
+# Contient tous les paramètres fixes indépendants du cas d'usage.
+# Les contraintes spécifiques à chaque discipline sont dans scenarios.yaml.
+# =============================================================================
+
+
+# MODÈLE DE RÉFÉRENCE wingfoil : "AFS Enduro 1100"
+#Surface	1100 cm2
+#Envergure	1100 mm
+#Aspect Ratio	11
+#Corde	136 mm
+#Epaisseur	16,2 mm
+#Finesse	15
+#Surface stab : 230 cm² 
+#Envergure stab : 42 cm.
+# fuselage 72-75 cm
+# Position CG : 35% à 42% de la corde.
+# Marge Statique (SM) : 50% à 70%.
+# finesse entre 12 et 17 pour un foil de freeride.
+
+
+# -----------------------------------------------------------------------------
+# CAS ACTIF
+# Options : "wingfoil", "windsurf", "downwind", "pumping"
+# -----------------------------------------------------------------------------
+case: "windsurf"
+
+
+# -----------------------------------------------------------------------------
+# MASSES
+# -----------------------------------------------------------------------------
+pilot:
+  mass_kg: 80               # Masse du pilote (kg) — weight = mass * 9.81 calculé dans le code
+board:
+  mass_kg: 5                # Masse de la planche (kg)
+rig:
+  windsurf_mass_kg: 6    # Gréement windsurf (voile + mât + wishbone)
+  wingfoil_mass_kg: 2     # Wing 
+  downwind_mass_kg: 0     
+  pumping_mass_kg: 0      
+
+
+
+# -----------------------------------------------------------------------------
+# ESPACES DE RECHERCHE PARAMÉTRIQUE (boucle NACA)
+# -----------------------------------------------------------------------------
+search_space:
+  cambrures: [0, 1, 2]              # 0=Symétrique ... 2=Cambré
+  epaisseurs_root: [15]             # Épaisseur emplanture (%)
+  angle_reflex: [0.0, 1.0, 2.0, 3.0]  # Angles de reflex (deg) : Standard, Léger, Moyen, Fort
+
+
+# -----------------------------------------------------------------------------
+# ANGLE D'ATTAQUE
+# -----------------------------------------------------------------------------
+alpha:
+  bounds: [-1.0, 10.0]      # Plage autorisée en croisière (deg)
+  init: 3.0                 # Valeur initiale pour IPOPT (deg)
+
+
+# -----------------------------------------------------------------------------
+# AILE PRINCIPALE
+# -----------------------------------------------------------------------------
+wing:
+  # Bornes d'optimisation
+  span_bounds: [0.90, 1.30]         # Envergure (m)
+  span_init: 1.0
+
+  root_chord_bounds: [0.12, 0.28]   # Corde emplanture (m)
+  root_chord_init: 0.18
+
+  tip_chord_bounds: [0.02, 0.12]    # Corde saumon (m)
+  tip_chord_init: 0.03
+
+  twist_bounds: [-4.0, -1.3]        # Vrillage (deg)
+  twist_init: -1.6
+
+  # Géométrie fixe
+  sweep_deg: 18.0                   # Flèche (deg) — standard esthétique et anti-algues
+  anhedral_deg: 5.0                 # Dièdre négatif (deg) — stabilité spirale
+  n_sections: 8                     # Nombre de sections pour la modélisation
+
+  # Sécurité
+  cl_max_takeoff: 1.1               # CL max estimé au décollage
+
+
+# -----------------------------------------------------------------------------
+# FUSELAGE (tube carbone)
+# -----------------------------------------------------------------------------
+fuselage:
+  length_bounds: [0.65, 0.90]       # Longueur (m) — CORRIGÉ (était [0.80, 0.115] dans le code original)
+  length_init: 0.70                 # Valeur initiale pour IPOPT (m)
+  diameter: 0.035                   # Diamètre moyen (m)
+  x_start: 0.10                     # Distance nez fuselage / bord d'attaque aile (m)
+  n_sections: 6                     # Nombre de sections pour la modélisation
+
+
+# -----------------------------------------------------------------------------
+# MÂT
+# -----------------------------------------------------------------------------
+mast:
+  length: 0.82                      # Longueur totale (m)
+  immersion_depth: 0.45             # Profondeur immergée (m) — généralement 45-50 cm
+  chord_top: 0.135                  # Corde au niveau de la ligne de flottaison (m)
+  chord_bot: 0.110                  # Corde en bas du mât (m)
+  profile: "naca0015"               # Profil épais et symétrique pour la rigidité
+  x_position: 0.25                  # Décalage X par rapport au bord d'attaque aile (m)
+  cd: 0.011                         # Coefficient de traînée (conservateur)
+  n_sections: 4                     # Nombre de sections pour la modélisation
+
+  # Note : chord_at_water_line et ratio_immersion sont calculés dans le code
+  # à partir de immersion_depth, length, chord_top et chord_bot.
+
+
+# -----------------------------------------------------------------------------
+# STABILISATEUR
+# -----------------------------------------------------------------------------
+stab:
+  # Bornes d'optimisation
+  span_bounds: [0.32, 0.56]         # Envergure (m)
+  span_init: 0.42
+
+  root_chord_bounds: [0.06, 0.20]   # Corde emplanture (m)
+  root_chord_init: 0.10
+
+  tip_chord_bounds: [0.015, 0.07]   # Corde saumon (m)
+  tip_chord_init: 0.02
+
+  twist_bounds: [-5.0, 0.5]         # Angle de calage (deg)
+  twist_init: -3.0
+
+  # Géométrie fixe
+  sweep_deg: 8.0                    # Flèche (deg)
+  dihedral_deg: 4.0                 # Dièdre (deg)
+  n_sections: 5                     # Nombre de sections pour la modélisation
