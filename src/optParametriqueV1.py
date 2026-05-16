@@ -20,7 +20,7 @@ sys.path.append(str(ROOT))
 from config.water_atmosphere import Water as Atmosphere
 
 # --- Chargement de la configuration physique globale ---
-with open("config/parameters.yaml") as f:
+with open("/Users/thomas/Documents/Dossier Supaero/clubs/Foil/Foil-Optimization-Algorithm/src/config/parameters.yaml") as f:
     phy = yaml.safe_load(f)
 
 CASE = phy["case"]
@@ -85,7 +85,7 @@ stab_dihedral_deg      = phy["stab"]["dihedral_deg"]
 N_sections_stab        = phy["stab"]["n_sections"]
 
 # --- Chargement du scénario actif ---
-with open("config/scenarios.yaml") as f:
+with open("/Users/thomas/Documents/Dossier Supaero/clubs/Foil/Foil-Optimization-Algorithm/src/config/scenarios.yaml") as f:
     SCENARIOS = yaml.safe_load(f)
 
 if CASE not in SCENARIOS:
@@ -135,7 +135,7 @@ def apply_reflex_to_naca(naca_name: str, reflex_angle_deg: float) -> asb.Airfoil
 def export_fiche_technique(
     out_dir, root_naca_profile,
     # Géométrie aile
-    val_surface, val_span, val_ar, val_root_c, val_tip_c, val_twist, wing_loading,
+    val_surface, val_span, val_ar, val_root_c, val_tip_c, val_twist, wing_loading, reflex_angle_deg,
     # Géométrie stab
     val_s_surface, val_s_span, val_s_ar, val_s_root_c, val_s_twist, val_fuselage_length,
     # Performances
@@ -155,6 +155,54 @@ def export_fiche_technique(
         f"# Fiche Technique — {CASE.upper()} | {root_naca_profile.upper()}",
         f"",
         f"*Générée le {now_str}*",
+        f"",
+        f"---",
+        f"",
+    ]
+
+    # Snapshot des paramètres d'entrée
+    lines += [
+        f"## 0. Paramètres du run",
+        f"",
+        f"### Recherche paramétrique",
+        f"| Paramètre | Valeur |",
+        f"|:---|:---|",
+        f"| Cambrures testées | {cambrures} |",
+        f"| Épaisseurs root testées | {epaisseurs_root} |",
+        f"| Angles reflex testés | {angle_reflex} |",
+        f"| Profil root retenu | {root_naca_profile.upper()} |",
+        f"| Angle reflex retenu | {reflex_angle_deg}° |",
+        f"",
+        f"### Bornes d'optimisation — Aile",
+        f"| Variable | Borne min | Borne max | Init |",
+        f"|:---|:---|:---|:---|",
+        f"| Envergure (m) | {wing_span_bounds[0]} | {wing_span_bounds[1]} | {wing_span_init} |",
+        f"| Corde root (m) | {root_chord_bounds[0]} | {root_chord_bounds[1]} | {root_chord_init} |",
+        f"| Corde tip (m) | {tip_chord_bounds[0]} | {tip_chord_bounds[1]} | {tip_chord_init} |",
+        f"| Vrillage (°) | {twist_bounds[0]} | {twist_bounds[1]} | {twist_init} |",
+        f"",
+        f"### Bornes d'optimisation — Stabilisateur",
+        f"| Variable | Borne min | Borne max | Init |",
+        f"|:---|:---|:---|:---|",
+        f"| Envergure (m) | {stab_span_bounds[0]} | {stab_span_bounds[1]} | {stab_span_init} |",
+        f"| Corde root (m) | {stab_root_chord_bounds[0]} | {stab_root_chord_bounds[1]} | {stab_root_chord_init} |",
+        f"| Corde tip (m) | {stab_tip_chord_bounds[0]} | {stab_tip_chord_bounds[1]} | {stab_tip_chord_init} |",
+        f"| Calage (°) | {s_twist_bounds[0]} | {s_twist_bounds[1]} | {s_twist_init} |",
+        f"",
+        f"### Bornes d'optimisation — Fuselage & CG",
+        f"| Variable | Borne min | Borne max | Init |",
+        f"|:---|:---|:---|:---|",
+        f"| Longueur fuselage (m) | {fuselage_bounds[0]} | {fuselage_bounds[1]} | {fuselage_init} |",
+        f"| Ratio CG | {cfg['cg_range'][0]} | {cfg['cg_range'][1]} | {cfg['cg_ratio_init']} |",
+        f"",
+        f"### Contraintes scénario — {CASE.upper()}",
+        f"| Contrainte | Min | Max |",
+        f"|:---|:---|:---|",
+        f"| Surface aile (m²) | {cfg['area_target_range'][0]} | {cfg['area_target_range'][1]} |",
+        f"| Surface stab (m²) | {cfg['stab_area_range'][0]} | {cfg['stab_area_range'][1]} |",
+        f"| Marge statique | {cfg['sm_range'][0]} | {cfg['sm_range'][1]} |",
+        f"| Force stab (N) | {cfg['stab_load_range'][0]} | {cfg['stab_load_range'][1]} |",
+        f"| Volume de queue | {cfg['vh_range'][0]} | {cfg['vh_range'][1]} |",
         f"",
         f"---",
         f"",
@@ -544,7 +592,7 @@ def evaluate_design(root_naca_profile: str, tip_naca_profile: str,
                     out_dir=out_dir, root_naca_profile=root_naca_profile,
                     val_surface=val_surface, val_span=val_span, val_ar=val_ar,
                     val_root_c=val_root_c, val_tip_c=val_tip_c, val_twist=val_twist,
-                    wing_loading=wing_loading,
+                    wing_loading=wing_loading, reflex_angle_deg=reflex_angle_deg,
                     val_s_surface=val_s_surface, val_s_span=val_s_span, val_s_ar=val_s_ar,
                     val_s_root_c=val_s_root_c, val_s_twist=val_s_twist,
                     val_fuselage_length=val_fuselage_length,
@@ -644,7 +692,7 @@ for c in cambrures:
             res = evaluate_design(root_name, tip_name, reflex, perform_export=False)
 
             if res["success"]:
-                print(f"OK | Finesse : {res['finesse']:.2f} | Surf : {res['surface']:.0f} cm² | Stab : {res['stab_force']:.1f} N")
+                print(f"Convergence : OK | Finesse : {res['finesse']:.2f} | Surf : {res['surface']:.0f} cm² | Stab : {res['stab_force']:.1f} N")
                 if best_run is None or res["finesse"] > best_run["finesse"]:
                     best_run    = res
                     best_config = (root_name, tip_name, reflex)
