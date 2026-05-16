@@ -1,132 +1,151 @@
 # =============================================================================
-# scenarios.yaml — Configuration des cas d'usage hydrofoil
+# scenarios.yaml — Contraintes aérodynamiques par discipline
 # =============================================================================
-# Chaque scénario définit les contraintes aérodynamiques et géométriques
-# propres à une discipline de foil.
+#   - Contraintes larges = l'optimiseur explore librement
+#   - Orientation freeride dans tous les cas (pas de vitesse pure)
 # =============================================================================
+
 
 # -----------------------------------------------------------------------------
 # WINGFOIL FREERIDE
+# Référence : AFS Enduro 1100 (1100 cm², finesse ~15, SM 50-70%)
 # -----------------------------------------------------------------------------
 wingfoil:
-  v_takeoff: 6          # Vitesse de décollage (m/s)
-  v_cruise: 9.5           # Vitesse de croisière (m/s)
+  v_takeoff: 5.5            # m/s — décollage freeride accessible (9.7 kts)
+  v_cruise: 9.5             # m/s — croisière confortable (~17.5 kts)
 
-  area_target_range:      # Surface aile (m²)
-    - 0.1000
-    - 0.1180
+  area_target_range:    
+    - 0.085              
+    - 0.130               
 
-  stab_area_range:        # Surface stabilisateur (m²)
-    - 0.0160
-    - 0.0210
+  stab_area_range:       
+    - 0.013             
+    - 0.026          
 
-  sm_range:               # Marge statique (ratio, 0.50 = 50%)
-    - 0.40
-    - 0.70
+  sm_range:              
+    - 0.14                  
+    - 0.30                  
 
-  stab_load_range:        # Force du stab en croisière (N, négatif = déportance)
-    - -40.0
-    - -10.0
+  stab_load_range:          # Force stab (N, négatif = déportance)
+    - -45.0               
+    - -5.0                
 
-  cg_range:               # Position CG / corde moyenne (ratio)
-    - 0.30
-    - 0.60
+  cg_range:                 # Position CG / corde moyenne
+    - 0.28                  # avant : pilotage précis
+    - 0.60                  # arrière : confort et stabilité
 
-  cg_ratio_init: 0.40     # Initialisation CG pour IPOPT
+  cg_ratio_init: 0.40       
 
-  rig_mass_kg: 3          # Masse du gréement
+  vh_range:                
+    - 0.30                 
+    - 0.85                
+
+  rig_mass_kg: 3            # Wing léger (3-4 kg typique)
 
 
 # -----------------------------------------------------------------------------
-# WINDSURF
+# WINDSURF FREERIDE
 # -----------------------------------------------------------------------------
 windsurf:
-  v_takeoff: 7.5
-  v_cruise: 13.0
+  v_takeoff: 7.0            # m/s — décollage nécessite plus de vitesse (~13.6 kts)
+  v_cruise: 13.0            # m/s — croisière freeride windsurf (~25,27 kts)
 
   area_target_range:
-    - 0.0700
-    - 0.1300
-
-  stab_area_range:        # Surface stab plus grande pour la stabilité directionnelle
-    - 0.0190
-    - 0.0280
-
-  sm_range:
-    - 0.10
-    - 0.40
-
-  stab_load_range:
-    - -30.0
-    - -5.0
-
-  cg_range:
-    - 0.20
-    - 0.40
-
-  cg_ratio_init: 0.27
-
-  rig_mass_kg: 6          # Masse du gréement windsurf (voile + mât + wishbone)
-
-
-# -----------------------------------------------------------------------------
-# DOWNWIND
-# -----------------------------------------------------------------------------
-downwind:
-  v_takeoff: 6.5
-  v_cruise: 13.0
-
-  area_target_range:
-    - 0.0850
-    - 0.1100
-
-  stab_area_range:        # Priorité glisse absolue
-    - 0.0160
-    - 0.0220
-
-  sm_range:               # Plus maniable pour surfer la houle
-    - 0.07
-    - 0.12
-
-  stab_load_range:        # Neutre et réactif
-    - -12.0
-    - -2.0
-
-  cg_range:               # Pieds vers l'avant
-    - 0.20
-    - 0.26
-
-  cg_ratio_init: 0.23
-  
-  rig_mass_kg: 0          # Pas de gréement pour le downwind
-
-# -----------------------------------------------------------------------------
-# PUMPING
-# -----------------------------------------------------------------------------
-pumping:
-  v_takeoff: 3.5
-  v_cruise: 6.0
-
-  area_target_range:      # Grande surface pour porter à basse vitesse
-    - 0.1300
-    - 0.1600
+    - 0.070               
+    - 0.120              
 
   stab_area_range:
-    - 0.0180
-    - 0.0240
+    - 0.018                 
+    - 0.032                 
 
-  sm_range:               # Très réactif au pompage (bascule facile)
-    - 0.04
-    - 0.08
+  sm_range:              
+    - 0.25                  # min : 25% (encore maniable en windsurf)
+    - 0.55                  # max : 55% (stable sans être figé)
 
-  stab_load_range:        # Très peu de déportance pour ne pas freiner
+  stab_load_range:          # Déportance plus forte pour contrer le moment du gréement
+    - -40.0
     - -8.0
+
+  cg_range:
+    - 0.20                  # Centrage plus avancé qu'en wingfoil (pied avant sur planche)
+    - 0.42
+
+  cg_ratio_init: 0.30
+
+  vh_range:                 # Fuselage long nécessaire pour la stabilité directionnelle
+    - 0.40
+    - 1.00
+
+  rig_mass_kg: 9            # Voile + mât + wishbone
+
+
+# -----------------------------------------------------------------------------
+# DOWNWIND FREERIDE
+# -----------------------------------------------------------------------------
+downwind:
+  v_takeoff: 6.0            # m/s — nécessite une petite poussée initiale
+  v_cruise: 10.0            # m/s — vitesse typique downwind freeride (~ 20 kts)
+
+  area_target_range:
+    - 0.080                 
+    - 0.115                 
+
+  stab_area_range:
+    - 0.014                 
+    - 0.024                 
+
+  sm_range:                 # Réactif 
+    - 0.08                  
+    - 0.20              
+
+  stab_load_range:          # Quasi neutre — pas de déportance qui freine la glisse
+    - -15.0
     - -1.0
 
   cg_range:
-    - 0.22
-    - 0.28
+    - 0.18                  # Très avancé — pieds vers l'avant sur la board
+    - 0.30
+
+  cg_ratio_init: 0.23
+
+  vh_range:                 # Fuselage court pour la maniabilité en virage
+    - 0.25
+    - 0.55
+
+  rig_mass_kg: 0           
+
+
+# -----------------------------------------------------------------------------
+# PUMPING FREERIDE
+# -----------------------------------------------------------------------------
+pumping:
+  v_takeoff: 3.5            # m/s — décollage à très basse vitesse (~6 kts)
+  v_cruise: 6.0             # m/s — vitesse de croisière pompage (~12kts)
+
+  area_target_range:        
+    - 0.120            
+    - 0.180                
+
+  stab_area_range:
+    - 0.016                 
+    - 0.028                
+
+  sm_range:                 # Très réactif 
+    - 0.04                  # min : 4%
+    - 0.12                  # max : 12% (au-delà, le pompage devient inefficace)
+
+  stab_load_range:          # Quasi nul — le stab ne doit pas freiner le mouvement
+    - -10.0
+    - -0.5
+
+  cg_range:
+    - 0.20
+    - 0.32
 
   cg_ratio_init: 0.25
 
-  rig_mass_kg: 0          # Pas de gréement pour le pumping
+  vh_range:                 # Fuselage très court pour l'efficacité du pompage
+    - 0.20
+    - 0.50
+
+  rig_mass_kg: 0            # Aucun gréement

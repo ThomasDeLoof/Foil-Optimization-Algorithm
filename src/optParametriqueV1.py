@@ -370,25 +370,27 @@ def evaluate_design(root_naca_profile: str, tip_naca_profile: str,
         combined_factor = 0.6 * elliptic_dist + 0.4 * linear_dist
         c_dist         = tip_chord + (root_chord - tip_chord) * combined_factor
 
-        # Fermeture progressive au saumon
-        r_start_tip = 0.90
-        if r > r_start_tip:
-            rt             = (r - r_start_tip) / (1 - r_start_tip)
-            closure_factor = np.sqrt(1 - rt ** 2)
-            c_dist         = (c_dist - 0.01) * closure_factor + 0.01
-
         # Position Z (anhedral + winglet)
-        z_base    = -((r ** 2) * span / 2) * np.tan(np.radians(wing_anhedral_deg))
-        z_winglet = -0.035 * (r ** 6)
-        z_pos     = z_base + z_winglet
+        z_base = - (r * (span / 2)) * np.tan(np.radians(wing_anhedral_deg))
+        # Le winglet s'active seulement au bout
+        if r > 0.8:
+            r_winglet = (r - 0.8) / 0.2
+            z_winglet = 0.05 * (r_winglet ** 2) * (span / 2) 
+        else:
+            z_winglet = 0.0
+        z_pos = z_base + z_winglet
 
         # Position X (sweep + pointe arrière)
-        x_sweep_base = ((r ** 2.5) * span / 2) * np.tan(np.radians(sweep_deg))
-        x_sweep_tip  = (root_chord - c_dist) if r > r_start_tip else 0
-        x_total      = x_sweep_base + x_sweep_tip
+        x_mid_sweep = ((r ** 2) * (span / 2)) * np.tan(np.radians(sweep_deg))
+        # petite pointe dynamique parabolique en bout d'aile
+        x_mid_tip   = 0.03 * (r ** 3) * (span / 2)
+        x_mid_total = x_mid_sweep + x_mid_tip
+        
+        # corde centrée sur cette ligne
+        x_le = x_mid_total - 0.5 * c_dist
 
         wing_xsecs.append(asb.WingXSec(
-            xyz_le=[x_total, r * (span / 2), z_pos],
+            xyz_le=[x_le, r * (span / 2), z_pos],
             chord=c_dist,
             twist=twist * r,
             airfoil=af_blend,
@@ -438,23 +440,23 @@ def evaluate_design(root_naca_profile: str, tip_naca_profile: str,
     stab_xsecs = []
     for i in range(N_sections_stab):
         r             = i / (N_sections_stab - 1)
-        elliptic_dist = np.sqrt(1 - r ** 2)
-        linear_dist   = 1 - r
-        c_dist        = s_tip_chord + (s_root_chord - s_tip_chord) * (0.8 * linear_dist + 0.2 * elliptic_dist)
+        s_elliptic     = np.sqrt(1 - r ** 2)
+        s_c_dist       = s_tip_chord + (s_root_chord - s_tip_chord) * s_elliptic
 
-        r_start_tip = 0.80
-        if r > r_start_tip:
-            rt             = (r - r_start_tip) / (1 - r_start_tip)
-            closure_factor = np.sqrt(1 - rt ** 2)
-            c_dist         = (c_dist - 0.01) * closure_factor + 0.01
-
-        z_dihedral = (r ** (3 / 2) * s_span / 2) * np.tan(np.radians(stab_dihedral_deg))
-        x_sweep    = 0.9 * (s_root_chord - c_dist) + ((r ** 2.5) * s_span / 2) * np.tan(np.radians(s_sweep_deg))
-        x_stab     = x_fuselage_start + fuselage_length - 0.10
+        # Géométrie (Dièdre et flèche)
+        z_dihedral = (r * (s_span / 2)) * np.tan(np.radians(stab_dihedral_deg))
+        
+        # Flèche calée sur le milieu de la corde du stab
+        x_s_mid_sweep = ((r ** 2) * (s_span / 2)) * np.tan(np.radians(s_sweep_deg))
+        x_stab_base   = x_fuselage_start + fuselage_length - 0.10
+        
+        # Bord d'attaque du stab recalculé
+        x_s_le = (x_stab_base + x_s_mid_sweep) - 0.5 * s_c_dist
 
         stab_xsecs.append(asb.WingXSec(
-            xyz_le=[x_stab + x_sweep, r * (s_span / 2), z_dihedral],
-            chord=c_dist, twist=s_twist,
+            xyz_le=[x_s_le, r * (s_span / 2), z_dihedral],
+            chord=s_c_dist, 
+            twist=s_twist,
             airfoil=asb.Airfoil("naca0012"),
         ))
 
