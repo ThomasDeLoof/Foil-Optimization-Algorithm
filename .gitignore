@@ -9,4 +9,4 @@ venv/
 .DS_Store
 
 # Dossiers de sortie temporaires (facultatif)
-#outputs/
+outputs/
