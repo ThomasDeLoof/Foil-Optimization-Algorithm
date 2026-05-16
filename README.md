@@ -93,7 +93,7 @@ I am well aware that this code is not guaranteed to output a ready-to-build hydr
 
 ## Acknowledgements
 
-This work was carried out within the ISAE Supaéro Foil club. I would like to acknowledge fellow club member Gaspard Bougnoux for their initial work within the Alten group, which provided a valuable baseline for comparison and pushed me to explore alternative geometric solutions to address specific physical performance constraints.
+This work was carried out within the ISAE Supaéro Foil club. I would like to acknowledge fellow club member Gaspard Bougnoux for his initial work, which provided a valuable baseline for comparison and pushed me to explore alternative geometric solutions to address specific physical performance constraints.
 
 ## License
 
