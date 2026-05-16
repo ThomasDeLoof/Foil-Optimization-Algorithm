@@ -10,7 +10,7 @@ import time
 # --- Configuration Chemins & Atmosphère ---
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
-from common.water_atmosphere import Water as Atmosphere
+from water_atmosphere import Water as Atmosphere
 
 # MODÈLE DE RÉFÉRENCE wingfoil : "AFS Enduro 1100"
 #Surface	1100 cm2
@@ -91,57 +91,10 @@ N_sections_stab = 5
 # Limites physiques pour guider le solveur
 CL_max_takeoff_approx = 1.1          # Estimation moyenne pour un profil cambré
 
-# ========================================================================================
-# 2. CONFIGURATION DES SCÉNARIOS
-# ========================================================================================
-SCENARIOS = {
-    "wingfoil":     
-        {"v_takeoff": 5.5,
-        "v_cruise": 9.5,  
-        "area_target_range": (0.10, 0.1180), # Entre 900 et 1300 cm2
-        "stab_area_range": (0.0160, 0.0210), # Stabilité longitudinale modérée
-        "sm_range": (0.50, 0.70),           # Marge statique large acceptée
-        "stab_load_range": (-40.0, -10.0),    # Force stab, verrouillage modéré
-        "cg_range": (0.35, 0.55),           # Centrage souvent reculé
-        "cg_ratio_init": 0.45,           # Initialisation du CG
-        "vh_range": (0.3, 0.8),      # Fuselage moyen
-        },
-    "windsurf": 
-        {"v_takeoff": 7.5, 
-        "v_cruise": 13, 
-        "area_target_range": (0.07, 0.13), 
-        "stab_area_range": (0.0190, 0.0280), # 190 - 280 cm² (Besoin de stabilité directionnelle)
-        "sm_range": (0.10, 0.40),      
-        "stab_load_range": (-30.0, -5.0),   # Vérouillage modéré voir nul pour de la race
-        "cg_range": (0.20, 0.40),   
-        "cg_ratio_init": 0.27,  
-        "vh_range": (0.45, 0.90),      # Long fuselage pour la stabilité directionnelle 
-        },
-    "downwind": 
-        {"v_takeoff": 6.5, 
-        "v_cruise": 13.0, 
-        "area_target_range": (0.085, 0.11),
-        "stab_area_range": (0.0160, 0.0220), # 160 - 220 cm² (Priorité glisse absolue)
-        "sm_range": (0.07, 0.12),      # Plus maniable pour surfer la houle
-        "stab_load_range": (-12.0, -2),   # Neutre et réactif (glisse maximale)
-        "cg_range": (0.20, 0.26),      # Position pieds vers l'avant
-        "cg_ratio_init": 0.23,
-        "vh_range": (0.35, 0.45),      # Fuselage court pour la maniabilité
-        },
-    "pumping":  
-        {"v_takeoff": 3.5, 
-        "v_cruise": 6.0,  
-        "area_target_range": (0.13, 0.160),
-        "stab_area_range": (0.0180, 0.0240), # 180 - 240 cm² (Vitesse faible = besoin de surface)
-        "sm_range": (0.04, 0.08),      # Très réactif au pumping (bascule facile)
-        "stab_load_range": (-8, -1),      # Très peu de déportance pour ne pas freiner
-        "cg_range": (0.22, 0.28),      # Centrage standard
-        "cg_ratio_init": 0.25,
-        "vh_range": (0.30, 0.40),      # Fuselage très court pour l'efficacité du pump
-        },
-}
-
 # Chargement de la configuration active
+import yaml
+with open("scenarios.yaml") as f:
+    SCENARIOS = yaml.safe_load(f)
 cfg = SCENARIOS[CASE]
 
 # --- HELPER: Chargement Profil ---

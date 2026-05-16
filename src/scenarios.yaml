@@ -1,0 +1,161 @@
+# =============================================================================
+# scenarios.yaml — Configuration des cas d'usage hydrofoil
+# =============================================================================
+# Chaque scénario définit les contraintes aérodynamiques et géométriques
+# propres à une discipline de foil.
+#
+# Utilisation dans le code Python :
+#   import yaml
+#   with open("scenarios.yaml") as f:
+#       SCENARIOS = yaml.safe_load(f)
+#   cfg = SCENARIOS[CASE]
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# WINGFOIL FREERIDE
+# Pratique : aile de kite/wing portée à la main, vitesses modérées.
+# Priorité : stabilité, facilité de décollage, confort.
+# Référence : AFS Enduro 1100, Slingshot Infinity
+# -----------------------------------------------------------------------------
+wingfoil:
+  v_takeoff: 5.5          # Vitesse de décollage (m/s)
+  v_cruise: 9.5           # Vitesse de croisière (m/s)
+
+  area_target_range:      # Surface aile (m²)
+    - 0.1000
+    - 0.1180
+
+  stab_area_range:        # Surface stabilisateur (m²)
+    - 0.0160
+    - 0.0210
+
+  sm_range:               # Marge statique (ratio, 0.50 = 50%)
+    - 0.50
+    - 0.70
+
+  stab_load_range:        # Force du stab en croisière (N, négatif = déportance)
+    - -40.0
+    - -10.0
+
+  cg_range:               # Position CG / corde moyenne (ratio)
+    - 0.35
+    - 0.55
+
+  cg_ratio_init: 0.45     # Initialisation CG pour IPOPT
+
+  vh_range:               # Volume de queue (ratio adimensionnel)
+    - 0.30
+    - 0.80
+
+
+# -----------------------------------------------------------------------------
+# WINDSURF
+# Pratique : voile rigide, vitesses élevées, gréement lourd.
+# Priorité : stabilité directionnelle, résistance au vent apparent.
+# Note : un moment piqueur supplémentaire est ajouté pour simuler
+#        le poids du gréement (~10 kg, bras de levier ~90 cm).
+# Référence : Fanatic Falcon, JP Australia Hydrofoil
+# -----------------------------------------------------------------------------
+windsurf:
+  v_takeoff: 7.5
+  v_cruise: 13.0
+
+  area_target_range:
+    - 0.0700
+    - 0.1300
+
+  stab_area_range:        # Surface stab plus grande pour la stabilité directionnelle
+    - 0.0190
+    - 0.0280
+
+  sm_range:
+    - 0.10
+    - 0.40
+
+  stab_load_range:
+    - -30.0
+    - -5.0
+
+  cg_range:
+    - 0.20
+    - 0.40
+
+  cg_ratio_init: 0.27
+
+  vh_range:               # Fuselage long pour la stabilité directionnelle
+    - 0.45
+    - 0.90
+
+
+# -----------------------------------------------------------------------------
+# DOWNWIND
+# Pratique : surf de houle / ondulations, paddle ou pagaie.
+# Priorité : glisse maximale, réactivité, maniabilité en virage.
+# Référence : Maliko 200, Code Red Ultra
+# -----------------------------------------------------------------------------
+downwind:
+  v_takeoff: 6.5
+  v_cruise: 13.0
+
+  area_target_range:
+    - 0.0850
+    - 0.1100
+
+  stab_area_range:        # Priorité glisse absolue
+    - 0.0160
+    - 0.0220
+
+  sm_range:               # Plus maniable pour surfer la houle
+    - 0.07
+    - 0.12
+
+  stab_load_range:        # Neutre et réactif
+    - -12.0
+    - -2.0
+
+  cg_range:               # Pieds vers l'avant
+    - 0.20
+    - 0.26
+
+  cg_ratio_init: 0.23
+
+  vh_range:               # Fuselage court pour la maniabilité
+    - 0.35
+    - 0.45
+
+
+# -----------------------------------------------------------------------------
+# PUMPING
+# Pratique : vol entretenu par pompage rythmique sans vent ni vague.
+# Priorité : portance maximale à basse vitesse, réactivité instantanée.
+# Référence : Axis Art, Signature Progression
+# -----------------------------------------------------------------------------
+pumping:
+  v_takeoff: 3.5
+  v_cruise: 6.0
+
+  area_target_range:      # Grande surface pour porter à basse vitesse
+    - 0.1300
+    - 0.1600
+
+  stab_area_range:
+    - 0.0180
+    - 0.0240
+
+  sm_range:               # Très réactif au pompage (bascule facile)
+    - 0.04
+    - 0.08
+
+  stab_load_range:        # Très peu de déportance pour ne pas freiner
+    - -8.0
+    - -1.0
+
+  cg_range:
+    - 0.22
+    - 0.28
+
+  cg_ratio_init: 0.25
+
+  vh_range:               # Fuselage très court pour l'efficacité du pump
+    - 0.30
+    - 0.40
