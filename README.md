@@ -87,13 +87,13 @@ I quickly realized that it would be too complex to consider certain physical asp
 I am well aware that this assumptions can make my code completly non realistic for certain cases.
 
 ## Final Thoughts
-I am well aware that this code is not guaranteed to output a ready-to-build hydrofoil, which is what big companies already struggle to do. However, building this from scratch was an attempt to tackle a massive engineering problem—one that entire companies spend years working on, and it forced me to dive deep into hydrodynamics and parametric optimization, I have learned an lot in the process.
+I am well aware that this code is not guaranteed to output a ready-to-build hydrofoil. However, building this from scratch was an attempt to tackle a massive engineering problem, one that entire companies spend years working on, and it forced me to dive deep into hydrodynamics and parametric optimization, I have learned an lot in the process.
 
 ---
 
 ## Acknowledgements
 
-This work was carried out within the ISAE Supaéro Foil club. I would like to acknowledge fellow club members for their initial work on a Kulfan-based optimization model, which provided a valuable baseline for comparison and pushed me to explore alternative geometric solutions to address specific physical performance constraints.
+This work was carried out within the ISAE Supaéro Foil club. I would like to acknowledge fellow club member Gaspard Bougnoux for their initial work within the Alten group, which provided a valuable baseline for comparison and pushed me to explore alternative geometric solutions to address specific physical performance constraints.
 
 ## License
 
