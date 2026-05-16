@@ -9,7 +9,7 @@
 # WINGFOIL FREERIDE
 # -----------------------------------------------------------------------------
 wingfoil:
-  v_takeoff: 5.5          # Vitesse de décollage (m/s)
+  v_takeoff: 6          # Vitesse de décollage (m/s)
   v_cruise: 9.5           # Vitesse de croisière (m/s)
 
   area_target_range:      # Surface aile (m²)
@@ -21,7 +21,7 @@ wingfoil:
     - 0.0210
 
   sm_range:               # Marge statique (ratio, 0.50 = 50%)
-    - 0.50
+    - 0.40
     - 0.70
 
   stab_load_range:        # Force du stab en croisière (N, négatif = déportance)
@@ -29,14 +29,12 @@ wingfoil:
     - -10.0
 
   cg_range:               # Position CG / corde moyenne (ratio)
-    - 0.35
-    - 0.55
-
-  cg_ratio_init: 0.45     # Initialisation CG pour IPOPT
-
-  vh_range:               # Volume de queue (ratio adimensionnel)
     - 0.30
-    - 0.80
+    - 0.60
+
+  cg_ratio_init: 0.40     # Initialisation CG pour IPOPT
+
+  rig_mass_kg: 3          # Masse du gréement
 
 
 # -----------------------------------------------------------------------------
@@ -68,9 +66,7 @@ windsurf:
 
   cg_ratio_init: 0.27
 
-  vh_range:               # Fuselage long pour la stabilité directionnelle
-    - 0.45
-    - 0.90
+  rig_mass_kg: 6          # Masse du gréement windsurf (voile + mât + wishbone)
 
 
 # -----------------------------------------------------------------------------
@@ -101,11 +97,8 @@ downwind:
     - 0.26
 
   cg_ratio_init: 0.23
-
-  vh_range:               # Fuselage court pour la maniabilité
-    - 0.35
-    - 0.45
-
+  
+  rig_mass_kg: 0          # Pas de gréement pour le downwind
 
 # -----------------------------------------------------------------------------
 # PUMPING
@@ -136,6 +129,4 @@ pumping:
 
   cg_ratio_init: 0.25
 
-  vh_range:               # Fuselage très court pour l'efficacité du pump
-    - 0.30
-    - 0.40
+  rig_mass_kg: 0          # Pas de gréement pour le pumping

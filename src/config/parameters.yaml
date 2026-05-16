@@ -32,15 +32,9 @@ case: "windsurf"
 # MASSES
 # -----------------------------------------------------------------------------
 pilot:
-  mass_kg: 80               # Masse du pilote (kg) — weight = mass * 9.81 calculé dans le code
+  mass_kg: 75               # Masse du pilote (kg) — weight = mass * 9.81 calculé dans le code
 board:
-  mass_kg: 5                # Masse de la planche (kg)
-rig:
-  windsurf_mass_kg: 6    # Gréement windsurf (voile + mât + wishbone)
-  wingfoil_mass_kg: 2     # Wing 
-  downwind_mass_kg: 0     
-  pumping_mass_kg: 0      
-
+  mass_kg: 5                # Masse de la planche (kg)    
 
 
 # -----------------------------------------------------------------------------
@@ -78,20 +72,20 @@ wing:
   twist_init: -1.6
 
   # Géométrie fixe
-  sweep_deg: 18.0                   # Flèche (deg) — standard esthétique et anti-algues
-  anhedral_deg: 5.0                 # Dièdre négatif (deg) — stabilité spirale
-  n_sections: 8                     # Nombre de sections pour la modélisation
+  sweep_deg: 15.0                   # Flèche (deg) — standard esthétique et anti-algues
+  anhedral_deg: 4.0                 # Dièdre négatif (deg) — stabilité spirale
+  n_sections: 10                     # Nombre de sections pour la modélisation
 
   # Sécurité
-  cl_max_takeoff: 1.1               # CL max estimé au décollage
+  cl_max_takeoff: 1.2               # CL max estimé au décollage
 
 
 # -----------------------------------------------------------------------------
 # FUSELAGE (tube carbone)
 # -----------------------------------------------------------------------------
 fuselage:
-  length_bounds: [0.65, 0.90]       # Longueur (m) — CORRIGÉ (était [0.80, 0.115] dans le code original)
-  length_init: 0.70                 # Valeur initiale pour IPOPT (m)
+  length_bounds: [0.65, 0.90]       # Longueur (m) 
+  length_init: 0.75                 # Valeur initiale pour IPOPT (m)
   diameter: 0.035                   # Diamètre moyen (m)
   x_start: 0.10                     # Distance nez fuselage / bord d'attaque aile (m)
   n_sections: 6                     # Nombre de sections pour la modélisation
@@ -108,7 +102,7 @@ mast:
   profile: "naca0015"               # Profil épais et symétrique pour la rigidité
   x_position: 0.25                  # Décalage X par rapport au bord d'attaque aile (m)
   cd: 0.011                         # Coefficient de traînée (conservateur)
-  n_sections: 4                     # Nombre de sections pour la modélisation
+  n_sections: 5                     # Nombre de sections pour la modélisation
 
   # Note : chord_at_water_line et ratio_immersion sont calculés dans le code
   # à partir de immersion_depth, length, chord_top et chord_bot.
@@ -119,8 +113,8 @@ mast:
 # -----------------------------------------------------------------------------
 stab:
   # Bornes d'optimisation
-  span_bounds: [0.32, 0.56]         # Envergure (m)
-  span_init: 0.42
+  span_bounds: [0.20, 0.50]         # Envergure (m)
+  span_init: 0.35
 
   root_chord_bounds: [0.06, 0.20]   # Corde emplanture (m)
   root_chord_init: 0.10
@@ -132,6 +126,6 @@ stab:
   twist_init: -3.0
 
   # Géométrie fixe
-  sweep_deg: 8.0                    # Flèche (deg)
-  dihedral_deg: 4.0                 # Dièdre (deg)
+  sweep_deg: 5.0                    # Flèche (deg)
+  dihedral_deg: 3.0                 # Dièdre (deg)
   n_sections: 5                     # Nombre de sections pour la modélisation

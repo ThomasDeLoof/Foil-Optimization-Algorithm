@@ -26,9 +26,7 @@ with open("/Users/thomas/Documents/Dossier Supaero/clubs/Foil/Foil-Optimization-
 CASE = phy["case"]
 
 # Masses & Poids
-rig_mass   = phy["rig"][f"{CASE}_mass_kg"]
-total_mass = phy["pilot"]["mass_kg"] + phy["board"]["mass_kg"] + rig_mass
-weight     = total_mass * 9.81  # Constante — jamais modifiée dans les fonctions
+mass = phy["pilot"]["mass_kg"] + phy["board"]["mass_kg"]
 
 # Espaces de recherche
 cambrures       = phy["search_space"]["cambrures"]
@@ -91,6 +89,10 @@ with open("/Users/thomas/Documents/Dossier Supaero/clubs/Foil/Foil-Optimization-
 if CASE not in SCENARIOS:
     raise ValueError(f"Cas '{CASE}' introuvable dans scenarios.yaml. Options : {list(SCENARIOS.keys())}")
 cfg = SCENARIOS[CASE]
+
+rig_mass = cfg["rig_mass_kg"]  # Masse du gréement 
+total_mass = mass + rig_mass  # Masse totale du système (pilote + planche + gréement)
+weight     = total_mass * 9.81  # Poids total (N)
 
 
 # =========================================================================================
@@ -468,13 +470,25 @@ def evaluate_design(root_naca_profile: str, tip_naca_profile: str,
 
     # ===================== ANALYSE AÉRODYNAMIQUE =====================
 
+    alpha=opti.variable(init_guess=alpha_init, lower_bound=alpha_bounds[0], upper_bound=alpha_bounds[1])    
+
     op_point = asb.OperatingPoint(
         velocity=cfg["v_cruise"],
-        alpha=opti.variable(init_guess=alpha_init, lower_bound=alpha_bounds[0], upper_bound=alpha_bounds[1]),
+        alpha=alpha,
         atmosphere=atmosphere,
     )
 
     aero = asb.AeroBuildup(airplane, op_point).run()
+
+    # Calcul de la marge statique 
+    op_2         = asb.OperatingPoint(
+        velocity=cfg["v_cruise"], 
+        alpha=alpha*1.01,  # Légère augmentation de l'angle d'attaque pour le calcul de la dérivée
+        atmosphere=atmosphere)
+    aero_2       = asb.AeroBuildup(airplane, op_2).run()
+    dCL          = aero_2["CL"] - aero["CL"]
+    dCm          = aero_2["Cm"] - aero["Cm"]
+    static_margin = -(dCm / (dCL + 1e-9))
 
     L  = aero["L"]
     D  = aero["D"]
@@ -498,8 +512,8 @@ def evaluate_design(root_naca_profile: str, tip_naca_profile: str,
         L >= weight,
 
         # Équilibre de tangage
-        M_total / (weight * mean_chord) >= -0.1,
-        M_total / (weight * mean_chord) <=  0.1,
+        M_total / (weight * mean_chord) >= -0.01,
+        M_total / (weight * mean_chord) <=  0.01, # Permet 1% marge de moment résiduel pour éviter les designs trop contraints
 
         # Surfaces (cibles scénario)
         wing.area() >= cfg["area_target_range"][0],
@@ -518,9 +532,9 @@ def evaluate_design(root_naca_profile: str, tip_naca_profile: str,
         # Décollage
         aero["wing_aero_components"][0].L <= q_takeoff * wing.area() * CL_max_takeoff_approx,
 
-        # Volume de queue
-        v_h >= cfg["vh_range"][0],
-        v_h <= cfg["vh_range"][1],
+        # Marge statique
+        static_margin >= cfg["sm_range"][0],
+        static_margin <= cfg["sm_range"][1],
     ])
 
     # Objectif : minimiser la traînée totale
