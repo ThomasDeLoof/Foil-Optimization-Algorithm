@@ -3,19 +3,10 @@
 # =============================================================================
 # Chaque scénario définit les contraintes aérodynamiques et géométriques
 # propres à une discipline de foil.
-#
-# Utilisation dans le code Python :
-#   import yaml
-#   with open("scenarios.yaml") as f:
-#       SCENARIOS = yaml.safe_load(f)
-#   cfg = SCENARIOS[CASE]
 # =============================================================================
 
 # -----------------------------------------------------------------------------
 # WINGFOIL FREERIDE
-# Pratique : aile de kite/wing portée à la main, vitesses modérées.
-# Priorité : stabilité, facilité de décollage, confort.
-# Référence : AFS Enduro 1100, Slingshot Infinity
 # -----------------------------------------------------------------------------
 wingfoil:
   v_takeoff: 5.5          # Vitesse de décollage (m/s)
@@ -50,11 +41,6 @@ wingfoil:
 
 # -----------------------------------------------------------------------------
 # WINDSURF
-# Pratique : voile rigide, vitesses élevées, gréement lourd.
-# Priorité : stabilité directionnelle, résistance au vent apparent.
-# Note : un moment piqueur supplémentaire est ajouté pour simuler
-#        le poids du gréement (~10 kg, bras de levier ~90 cm).
-# Référence : Fanatic Falcon, JP Australia Hydrofoil
 # -----------------------------------------------------------------------------
 windsurf:
   v_takeoff: 7.5
@@ -89,9 +75,6 @@ windsurf:
 
 # -----------------------------------------------------------------------------
 # DOWNWIND
-# Pratique : surf de houle / ondulations, paddle ou pagaie.
-# Priorité : glisse maximale, réactivité, maniabilité en virage.
-# Référence : Maliko 200, Code Red Ultra
 # -----------------------------------------------------------------------------
 downwind:
   v_takeoff: 6.5
@@ -126,9 +109,6 @@ downwind:
 
 # -----------------------------------------------------------------------------
 # PUMPING
-# Pratique : vol entretenu par pompage rythmique sans vent ni vague.
-# Priorité : portance maximale à basse vitesse, réactivité instantanée.
-# Référence : Axis Art, Signature Progression
 # -----------------------------------------------------------------------------
 pumping:
   v_takeoff: 3.5
