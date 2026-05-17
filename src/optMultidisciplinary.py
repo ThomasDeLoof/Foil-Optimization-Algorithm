@@ -165,11 +165,8 @@ BOUNDS = BOUNDS_AIRFOIL + BOUNDS_AIRFOIL + BOUNDS_GEOM
 N_VAR  = len(BOUNDS) 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. FILTRE GÉOMÉTRIQUE BAS COÛT
+# 3. VALIDITÉ DES PROFILS LIBRES
 # ─────────────────────────────────────────────────────────────────────────────
-
-TE_MIN_M         = 0.001   # Épaisseur bord de fuite minimale (1 mm)
-THICKNESS_MIN    = 0.06    # Épaisseur relative minimale (6 %)
 
 def _cst_eval(x: np.ndarray, weights: np.ndarray, upper: bool) -> np.ndarray:
     """Évalue la formule CST directement depuis les poids de Bernstein."""
@@ -178,86 +175,134 @@ def _cst_eval(x: np.ndarray, weights: np.ndarray, upper: bool) -> np.ndarray:
     B = np.zeros_like(x)
     for i, w in enumerate(weights):
         B += w * comb(n, i, exact=False) * (x ** i) * ((1 - x) ** (n - i))
-    return C * B 
-
+    return C * B if upper else -(C * B)
 
 def geometric_penalty(au_weights: np.ndarray, al_weights: np.ndarray, chord: float) -> float:
     """
-    Vérifie la validité géométrique en évaluant directement la formule CST.
-    Distribution cosinus : dense près du BA et du BF, pas d'angle mort.
+    Validité géométrique d'un profil Kulfan (CST)
     """
     try:
-        # Distribution cosinus — 80 points, couvre x ∈ [0.001, 0.999]
-        theta   = np.linspace(0.01, np.pi - 0.01, 80)
-        x_check = 0.5 * (1 - np.cos(theta))
-
-        y_upper = _cst_eval(x_check, np.array(au_weights), upper=True)
-        y_lower = -_cst_eval(x_check, np.array(al_weights), upper=False)
-
-        thickness = y_upper - y_lower  # doit être > 0 partout
-
-        # Croisement extrados/intrados
-        if np.any(thickness < 0):
+        # positivité de l'épaisseur (pas de croisement) 
+        x_check = np.linspace(0.05, 0.95, 100) # on exclut x=0 et x=1
+        y_upper = _cst_eval(x_check, au_weights, upper=True)
+        y_lower = -_cst_eval(x_check, al_weights, upper=False)
+        thickness =  y_upper - y_lower
+        
+        if np.any(thickness <= 0.0):
             return 1e6 + 1e4 * float(-np.min(thickness))
 
-        # Épaisseur relative max
-        t_max = float(np.max(thickness))
-        if t_max < THICKNESS_MIN:
-            return 1e6 + 1e4 * (THICKNESS_MIN - t_max)
-
-        # Bord de fuite absolu
-        te_thick = float(au_weights[-1] + al_weights[-1]) * 0.5 * chord 
-        if te_thick < TE_MIN_M:
-            return 5e4 * (TE_MIN_M - te_thick) / TE_MIN_M
-
-        # Épaisseur minimale absolue au BA (x < 2%)
-        x_le    = np.array([0.005, 0.010, 0.015, 0.020])
-        y_u_le  = _cst_eval(x_le, np.array(au_weights), upper=True)
-        y_l_le  = -_cst_eval(x_le, np.array(al_weights), upper=False)
-        if np.any(y_u_le - y_l_le < 1e-4):   # épaisseur < 0.01% corde au BA
-            return 1e6
+        # rayon de courbure du BA : R_le = 0.5 * w0^2
+        # Imposer w0 >= 0.10 garantit un rayon de courbure > 0.5% de la corde 
+        #if au_weights[0] < 0.10 or al_weights[0] < 0.03:
+         #  return 5e5+1e4* (1/(au_weights[0]+1e10))
 
     except Exception:
         return 1e6
 
-    return 0.0
-
+    return 0.0  # Le profil est valide
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. ANALYSE STRUCTURELLE 
 # ─────────────────────────────────────────────────────────────────────────────
 
-SIGMA_CARBONE = 400e6   # Pa, Limite admissible carbone/époxy (valeur conservative)
+SIGMA_CARBONE = 300e6   # Pa, Limite admissible carbone/époxy (valeur très conservative pour brider l'AR)
 
-
-def section_inertia(af: asb.KulfanAirfoil, chord: float) -> tuple:
+def _section_bending_inertia(au_weights: np.ndarray, al_weights: np.ndarray, chord: float) -> tuple:
     """
     Calcule le moment quadratique I_xx et y_max d'une section de profil
     par la formule de Green sur le polygone de coordonnées.
     Hypothèse section pleine (conservative pour une coque).
     """
-    coords = af.coordinates
-    xp = coords[:, 0] * chord
-    yp = coords[:, 1] * chord
+    x_check = np.linspace(0.0, 1.0, 100)
+    xp = x_check * chord
+    yp_upper = _cst_eval(x_check, au_weights, upper=True) * chord
+    yp_lower = -_cst_eval(x_check, al_weights, upper=False) * chord
+
+    # Reconstruction du polygone fermé (extrados puis intrados inversé)
+    x_poly = np.concatenate([xp, xp[::-1]])
+    y_poly = np.concatenate([yp_upper, yp_lower[::-1]])
     n  = len(xp)
 
     I_xx = 0.0
     for i in range(n - 1):
-        cross = xp[i] * yp[i + 1] - xp[i + 1] * yp[i]
-        I_xx += (yp[i] ** 2 + yp[i] * yp[i + 1] + yp[i + 1] ** 2) * cross
+        # Formule de Green pour l'inertie d'un polygone
+        cross = x_poly[i] * y_poly[i + 1] - x_poly[i + 1] * y_poly[i]
+        I_xx += (y_poly[i] ** 2 + y_poly[i] * y_poly[i + 1] + y_poly[i + 1] ** 2) * cross
     I_xx  = abs(I_xx) / 12.0
-    y_max = float(np.max(np.abs(yp)))
+    if I_xx < 1e-12:
+        I_xx = 1e-12
+    
+    y_max = float(np.max(np.abs(y_poly)))
     return I_xx, y_max
 
+def _section_torsional_inertia(au_weights: np.ndarray, al_weights: np.ndarray, chord: float) -> float:
+    """
+    Calcule la constante de torsion J (m^4) d'une section de profil pleine.
+    Modélisation par approximation elliptique 
+    """
+    # Échantillonnage propre pour extraire l'épaisseur réelle
+    x_check = np.linspace(0.0, 1.0, 100)
+    yp_upper = _cst_eval(x_check, au_weights, upper=True) * chord
+    yp_lower = -_cst_eval(x_check, al_weights, upper= False) * chord
+    thickness = (yp_upper - yp_lower) * chord
+    t_max = float(np.max(thickness))
+    
+    # Demi-axes de l'ellipse équivalente
+    c = chord
+    a = c / 2.0
+    b = t_max / 2.0
+    
+    # Formule analytique de l'inertie de torsion d'une section elliptique pleine
+    J = (np.pi * (a**3) * (b**3)) / (a**2 + b**2 + 1e-15)
+    return J
 
-def bending_stress(I_xx: float, y_max: float, lift_semi: float, span_semi: float) -> float:
+
+def _bending_stress(I_xx: float, y_max: float, lift_semi: float, span_semi: float) -> float:
     """
     Contrainte de flexion à l'emplanture.
     Charge appliquée au centre de portance d'une distribution elliptique (span/4).
     """
     M_flex = lift_semi * (span_semi / 4.0)
-    return M_flex * y_max / (I_xx + 1e-10)
+    return M_flex * y_max / (I_xx+1e-10)
 
+
+def _torsional_stress(J: float, chord: float, au_weights: np.ndarray, al_weights: np.ndarray, span_semi: float) -> float:
+    """
+    Calcule la contrainte de cisaillement maximale (Tau) due à un cas de charge 
+    de torsion normé (indépendant du CL immédiat).
+    """
+    x_check = np.linspace(0.0, 1.0, 100)
+    yp_upper = _cst_eval(x_check, au_weights, upper=True) * chord
+    yp_lower = -_cst_eval(x_check, al_weights, upper=False) * chord
+    thickness = (yp_upper - yp_lower) * chord
+    t_max = float(np.max(thickness))
+    
+    # ---- CAS DE CHARGE NORMÉ (STRESS TEST GENERIQUE) ----
+    # la moitié du poids (WEIGHT/2) agit avec un excentrement 
+    # hydrodynamique standard (5% de la corde)
+    M_torsion_ref = (WEIGHT / 2.0) * (0.05 * chord) * (span_semi / 2.0)
+    
+    # Pour un profil plein, la contrainte Tau max se situe au milieu de la grande face (épaisseur max)
+    # Formule : Tau = Mt / J * épaisseur_max (avec coefficient de forme approché)
+    tau_torsion = (M_torsion_ref / (J + 1e-15)) * (t_max / 2.0)
+    return tau_torsion
+
+def VonMisesStress(au_weights: np.ndarray, al_weights: np.ndarray, chord: float, span: float) -> float:
+    """Synthèse globale Von Mises sur les moyennes de l'aile principale"""
+    lift_semi = WEIGHT / 2.0
+    span_semi = span / 2.0
+    
+    # Calcul de la Flexion Pure (Sigma)
+    I_xx, y_max = _section_bending_inertia(au_weights, al_weights, chord) # Ta fonction de Green existante
+    sigma_flex = _bending_stress(I_xx, y_max, lift_semi, span_semi)
+    
+    # Calcul de la Torsion Pure (Tau) via nos nouvelles fonctions
+    J = _section_torsional_inertia(au_weights, al_weights, chord)
+    tau_torsion = _torsional_stress(J, chord, au_weights, al_weights, span_semi)
+    
+    # Critère de Von Mises (Contrainte équivalente totale)
+    sigma_von_mises = np.sqrt(sigma_flex**2 + 3 * tau_torsion**2)
+    return sigma_von_mises
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. ANALYSE FLUIDE
@@ -423,8 +468,8 @@ def objective(x: np.ndarray) -> float:
     """
     Minimise la trainée
     Contraintes :
-      Hard (filtre géométrique) : épaisseur, croisement, TE
-      Soft (pénalité K×violation²) : équilibres et contraintes fluides/structurelles
+      Hard : validité géométrique des profils
+      Soft (pénalité K*violation^2) : équilibres et contraintes fluides/structurelles
     """
     p = decode(x)
 
@@ -467,7 +512,6 @@ def objective(x: np.ndarray) -> float:
     ATTENTION : normaliser les contraintes
     '''
 
-
     # Fonction générique pour appliquer le carré uniquement en cas de dépassement strict
     def soft_penalty(valeur: float, limite_basse: float, limite_haute: float, ref: float) -> float:
         if valeur < limite_basse:
@@ -491,10 +535,9 @@ def objective(x: np.ndarray) -> float:
 
     # Contrainte structurelle 
     try:
-        I_xx, y_max = section_inertia(af_root, p["root_chord"])
-        sigma       = bending_stress(I_xx, y_max, WEIGHT / 2, p["span"] / 2)
-        if sigma > SIGMA_CARBONE:
-            penalty += K1 * ((sigma - SIGMA_CARBONE) / SIGMA_CARBONE) ** 2
+        sigma_total = VonMisesStress(p["Au_root"], p["Al_root"], p["root_chord"], p["span"])
+        if sigma_total > SIGMA_CARBONE:
+            penalty += K1 * ((sigma_total - SIGMA_CARBONE) / SIGMA_CARBONE) ** 2
     except Exception:
         penalty += K1
 
@@ -505,18 +548,19 @@ def objective(x: np.ndarray) -> float:
     if CL_to > CL_MAX_TO:
         penalty += K1 * ((CL_to - CL_MAX_TO) / CL_MAX_TO) ** 2
 
-    # Marge statique (version analytique bas coût avec le volume de queue)
-    try:
-        # approximation foyer à 25% puis décalage dû au stab de 80% du point neutre
-        x_ac_wing = float(wing.xsecs[0].xyz_le[0]) + 0.25 * mean_chord
-        v_h       = (stab.area() * p["fuselage_length"]) / (S_wing * mean_chord + 1e-9)
-        x_neutral_point_ratio = (x_ac_wing / mean_chord) + (0.80 * v_h)
-        SM        = x_neutral_point_ratio - p["cg_ratio"]
+    # Marge statique (calculé seulement si la pénalité globale est déjà petite pour optimiser)
+    if penalty<K1: 
+        try:
+            # approximation foyer à 25% puis décalage dû au stab de 80% du point neutre
+            op2   = asb.OperatingPoint(velocity=cfg["v_cruise"], alpha=p["alpha"] + 0.1, atmosphere=atmosphere)
+            aero2 = asb.AeroBuildup(airplane, op2).run()
+            SM    = -((float(aero2["Cm"]) - Cm) / (float(aero2["CL"]) - CL + 1e-9))
 
-        sm_low, sm_high = cfg["sm_range"][0], cfg["sm_range"][1]
-        penalty += K2 * soft_penalty(SM, sm_low, sm_high, ref=sm_low)
-    except Exception:
-        penalty += K2
+            sm_low, sm_high = cfg["sm_range"][0], cfg["sm_range"][1]
+            penalty += K2 * soft_penalty(SM, sm_low, sm_high, ref=sm_low)
+        except Exception:
+            penalty += K2
+    else : penalty += K1 
 
     # Surface aile 
     sw_low, sw_high = cfg["area_target_range"][0], cfg["area_target_range"][1]
@@ -540,6 +584,7 @@ def objective(x: np.ndarray) -> float:
 
     # Volume de queue Vh (Vérification géométrique pour le comportement de l'assiette)
     try:
+        v_h     = (stab.area() * p["fuselage_length"]) / (wing.area() * mean_chord)
         vh_low, vh_high = cfg["vh_range"][0], cfg["vh_range"][1]
         penalty += K3 * soft_penalty(v_h, vh_low, vh_high, ref=vh_low)
     except Exception:
@@ -552,9 +597,13 @@ def objective(x: np.ndarray) -> float:
         t_max = 0.12
 
     Cp_min_est = -(1.2 * abs(CL) + 3.0 * t_max)
-    if Cp_min_est < SIGMA_CAV:
+    if Cp_min_est < - SIGMA_CAV:
         # Correction du bug syntaxique (ajout du signe + et du multiplicateur *)
         penalty += K3 * ((-Cp_min_est - SIGMA_CAV) / SIGMA_CAV) ** 2
+    
+    # Si l'individu actuel est meilleur que le record du run en cours, on mémorise ses composants
+    _run_score["D_total"] = D_total
+    _run_score["penalty"] = penalty
 
     return D_total + penalty
 
@@ -574,6 +623,10 @@ DE_PARAMS = {
     "polish":     False,          # Affinage L-BFGS-B sur le meilleur individu
     "updating":   "deferred",    # Nécessaire pour workers=-1
     "disp":       True,
+    "maxiter": 100,            # On limite à 100 générations max par essai (au lieu de 300+)
+    "tol": 1e-3,               # Tolérance relative plus lâche pour s'arrêter plus vite
+    "atol": 0.1,               # Arrêt dès que la population varie de moins de 0.1 Newton
+
 }
 
 # Run à un seul point d'entrée
@@ -601,8 +654,6 @@ from scipy.optimize import minimize
 def run_multistart(n_starts: int = 5) -> np.ndarray:
     """
     Lance n_starts runs DE avec des initialisations Sobol décalées.
-    Chaque run couvre une région différente de l'espace de recherche.
-    Retourne le meilleur individu global.
     """
     print(f"\n{'='*65}")
     print(f"  MULTI-START DE — {n_starts} runs | CAS : {CASE.upper()}")
@@ -611,53 +662,60 @@ def run_multistart(n_starts: int = 5) -> np.ndarray:
     lb = np.array([b[0] for b in BOUNDS])
     ub = np.array([b[1] for b in BOUNDS])
 
+    pop_size = DE_PARAMS["popsize"] * N_VAR
+
+    # un seul sampler global avant la boucle
+    sampler = qmc.Sobol(d=N_VAR, scramble=True, seed=42)
+
     best_x   = None
     best_val = np.inf
 
     for run_idx in range(n_starts):
         seed = 42 + run_idx * 137   # Seeds décorrélées
-
-        # Population initiale Sobol — couvre l'espace plus uniformément que random
-        # Chaque run utilise un scramble différent pour diversifier
-        pop_size  = DE_PARAMS["popsize"] * N_VAR
-        sampler   = qmc.Sobol(d=N_VAR, scramble=True, seed=seed)
-        init_pop  = qmc.scale(sampler.random(pop_size), lb, ub)
+        raw_samples = sampler.random(pop_size)
+        init_pop    = qmc.scale(raw_samples, lb, ub)
 
         print(f"  ─── Run {run_idx + 1}/{n_starts} (seed={seed}) ───")
 
         result = differential_evolution(
             objective,
             BOUNDS,
-            init=init_pop,            # Population Sobol
+            init=init_pop,
             seed=seed,
             strategy=DE_PARAMS["strategy"],
-            maxiter=DE_PARAMS["maxiter"],
+            
+            # --- CONTRÔLE DE L'EFFORT DE CALCUL ---
+            maxiter=DE_PARAMS["maxiter"],             
+            tol=DE_PARAMS["tol"],                
+            atol=DE_PARAMS["atol"],                 
+            # ──────────────────────────────────────
+            
             popsize=DE_PARAMS["popsize"],
-            tol=DE_PARAMS["tol"],
             mutation=DE_PARAMS["mutation"],
             recombination=DE_PARAMS["recombination"],
             workers=DE_PARAMS["workers"],
-            polish=False,             # On polit séparément après
+            polish=False,             # Parfait, on garde False ici
             updating=DE_PARAMS["updating"],
-            disp=True,
+            disp=False,
             callback=_de_callback,
         )
 
         print(f"  Run {run_idx+1} → Fonction Objectif = {result.fun:.3f} N | "
-              f"{'OK' if result.success else 'Failed'}")
+              f"{'OK' if result.success else 'Convergence failed'}")
 
         if result.fun < best_val:
             best_val = result.fun
             best_x   = result.x.copy()
             print(f"  - Nouveau meilleur global : {best_val:.3f} N\n")
 
-    # Affinage final Nelder-Mead sur le meilleur individu
-    print(f"\n  Affinage final (Nelder-Mead) depuis le meilleur global...")
+    # Affinage final sur le meilleur individu
+    print(f"\n  Affinage final (L-BFGS-B) depuis le meilleur global...")
     refined = minimize(
         objective,
         best_x,
-        method="Nelder-Mead",
-        options={"maxiter": 5000, "xatol": 1e-7, "fatol": 1e-7, "disp": True},
+        method="L-BFGS-B",
+        bounds=BOUNDS,
+        options={"maxiter": 1000, "xatol": 1e-6, "fatol": 1e-6, "disp": True},
     )
     if refined.fun < best_val:
         print(f"  ✓ Affinage réussi : {best_val:.3f} → {refined.fun:.3f} N")
@@ -667,13 +725,32 @@ def run_multistart(n_starts: int = 5) -> np.ndarray:
 
 
 _run_counter = {"n": 0}
+_run_score = {
+    "D_total": np.inf,
+    "penalty": np.inf
+    } # Fonction objectif
 
 def _de_callback(xk: np.ndarray, convergence: float) -> bool:
-    """Affiche la progression tous les 20 appels"""
+    """Affiche la progression toutes les 20 générations réelles"""
     _run_counter["n"] += 1
-    if _run_counter["n"] % 20 == 0:
-        val = objective(xk)
-        print(f"    gen ~{_run_counter['n']} | convergence={convergence:.4f} | D={val:.2f} N")
+    
+    if (_run_counter["n"]-1) % 5 == 0:
+        progress = min((_run_counter["n"] / DE_PARAMS["maxiter"]) * 100, 100.0)
+        
+        # Récupération sécurisée des scores du dictionnaire global
+        D_total = _run_score["D_total"]
+        penalty = _run_score["penalty"]
+        
+        D_str = f"{D_total:.2f} N" if D_total < np.inf else "Filtres..."
+        Penalty_str = f"{penalty:.2f} N" if penalty < np.inf else "..."
+            
+        # Barre de chargement visuelle
+        bar_length = 10
+        filled = int(round(progress / 10))
+        bar = "█" * filled + "░" * (bar_length - filled)
+        
+        # Alignement parfait des colonnes pour la console
+        print(f"    Gen {_run_counter['n']:3d} | D_total = {D_str:<9} | Penalty = {Penalty_str:<13} | Population : [{bar}] {progress:5.1f}%")
     return False   # False = ne pas arrêter
 
 
@@ -706,17 +783,11 @@ def full_report(x: np.ndarray) -> None:
 
     op2   = asb.OperatingPoint(velocity=cfg["v_cruise"], alpha=p["alpha"] + 0.1, atmosphere=atmosphere)
     aero2 = asb.AeroBuildup(airplane, op2).run()
-    SM_true    = -((float(aero2["Cm"]) - Cm) / (float(aero2["CL"]) - CL + 1e-9))
-
-    x_ac_wing = float(wing.xsecs[0].xyz_le[0]) + 0.25 * mean_chord
-    v_h       = (stab.area() * p["fuselage_length"]) / (wing.area() * mean_chord + 1e-9)
-    x_neutral_point_ratio = (x_ac_wing / mean_chord) + (0.80 * v_h)
-    SM_approx       = x_neutral_point_ratio - p["cg_ratio"]
+    SM    = -((float(aero2["Cm"]) - Cm) / (float(aero2["CL"]) - CL + 1e-9))
 
     F_stab  = float(aero["wing_aero_components"][1].L)
     v_h     = (stab.area() * p["fuselage_length"]) / (wing.area() * mean_chord)
-    I_xx, y_max = section_inertia(af_root, p["root_chord"])
-    sigma   = bending_stress(I_xx, y_max, WEIGHT / 2, p["span"] / 2)
+    sigma   = VonMisesStress(p["Au_root"], p["Al_root"], (p["root_chord"]+p["tip_chord"])/2 ,p["span"]/ 2)
 
     # ── Affichage console ─────────────────────────────────────────────────────
     print(f"\n{'='*65}")
@@ -729,13 +800,12 @@ def full_report(x: np.ndarray) -> None:
     print(f"  Corde R/T        : {p['root_chord']*1000:.0f} / {p['tip_chord']*1000:.0f} mm")
     print(f"  Surface stab     : {stab.area()*1e4:.0f} cm²")
     print(f"  Fuselage         : {p['fuselage_length']*100:.0f} cm")
-    print(f"  Marge statique théorique   : {SM_true*100:.1f} %")
-    print(f"  Marge statique approximée pour l'optimisation   : {SM_approx*100:.1f} %")
+    print(f"  Marge statique   : {SM*100:.1f} %")
     print(f"  Moment résiduel  : {M_total:.4f} N·m")
     print(f"  Force stab       : {F_stab:.1f} N")
     print(f"  Volume de queue  : {v_h:.3f}")
     print(f"  CG               : {p['cg_ratio']*100:.1f} % c̄")
-    print(f"  σ flexion root   : {sigma/1e6:.1f} MPa / {SIGMA_CARBONE/1e6:.0f} MPa admis.")
+    print(f"  Contrainte Von Mises   : {sigma/1e6:.1f} MPa / {SIGMA_CARBONE/1e6:.0f} MPa admis.")
     print(f"  Cavitation σ_v   : {SIGMA_CAV:.2f}  |  Cp_min ≈ {-2*abs(CL):.2f}")
     print(f"{'='*65}\n")
 
@@ -747,7 +817,7 @@ def full_report(x: np.ndarray) -> None:
 
     # Fiche technique Markdown
     _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D, CL, Cm,
-               SM_true, SM_approx, F_stab, v_h, M_total, sigma, rho, mu, X_cg)
+               SM, F_stab, v_h, M_total, sigma, rho, mu, X_cg)
 
     # Profils .dat (format Selig pour XFLR5)
     airplane_sol = airplane
@@ -792,7 +862,7 @@ def _export_dat(af, filepath, name):
 
 
 def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D, CL, Cm,
-               SM_true, SM_approx, F_stab, v_h, M_total, sigma, rho, mu, X_cg):
+               SM, F_stab, v_h, M_total, sigma, rho, mu, X_cg):
     now_str = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     Re_root = rho * cfg["v_cruise"] * p["root_chord"] / mu
     Re_tip  = rho * cfg["v_cruise"] * p["tip_chord"]  / mu
@@ -844,8 +914,7 @@ def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D, CL, Cm,
         f"", f"---", f"",
         f"## 4. Stabilité & Structure", f"",
         f"| Paramètre | Valeur |", f"|:---|:---|",
-        f"| Marge statique théorique | {SM_true*100:.1f} % |",
-        f"| Marge statique approximée pour l'optimisation | {SM_approx*100:.1f} % |",
+        f"| Marge statique théorique | {SM*100:.1f} % |",
         f"| Position CG | {p['cg_ratio']*100:.1f} % c̄ ({X_cg*100:.1f} cm du BA) |",
         f"| Moment résiduel | {M_total:.4f} N·m |",
         f"| Force stab | {F_stab:.1f} N |",
@@ -856,10 +925,10 @@ def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D, CL, Cm,
     ]
 
     warnings_list = []
-    if SM_true * 100 > 70:
-        warnings_list.append(f"⚠️ SM élevée ({SM_true*100:.1f}%) — maniabilité réduite.")
-    if SM_true * 100 < 5:
-        warnings_list.append(f"⚠️ SM très faible ({SM_true*100:.1f}%) — risque d'instabilité.")
+    if SM * 100 > 70:
+        warnings_list.append(f"⚠️ SM élevée ({SM*100:.1f}%) — maniabilité réduite.")
+    if SM * 100 < 5:
+        warnings_list.append(f"⚠️ SM très faible ({SM*100:.1f}%) — risque d'instabilité.")
     if abs(M_total) > 5:
         warnings_list.append(f"⚠️ Moment résiduel important ({M_total:.2f} N·m).")
     if sigma > SIGMA_CARBONE:
