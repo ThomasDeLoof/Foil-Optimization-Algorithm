@@ -28,11 +28,23 @@ search_space:
   cambrures: [0, 1, 2]                    # 0=Symétrique, 1=Légèrement cambré, 2=Cambré
   epaisseurs_root: [12, 15, 18]           # Épaisseur emplanture (%) — du mince au épais
   angle_reflex: [0.0, 1.0, 2.0, 3.0]     # Reflex trailing edge (deg)
+  N_starts: 10
 
 alpha:
   bounds: [-2.0, 12.0]    # Plage physiquement réaliste avant décrochage
   init: 3.0               # Point de départ raisonnable
 
+# Paramétrage Kulfan
+Kulfan:
+  N_CST: 8          # Coefficients par surface (extrados + intrados)
+  DELTA: 0.01       # Demi-amplitude des bornes autour des valeurs de référence
+  NACA_REF_NAME: "naca2412"  # Choix du profil de référence pour l'initialisation 
+
+
+
+# -----------------------------------------------------------------------------
+# AILE PRINCIPALE
+# -----------------------------------------------------------------------------
 wing:
   # Bornes larges — l'optimiseur choisit librement dans cette plage
   span_bounds: [0.75, 1.40]         # 75 cm (race) à 140 cm (pumping/débutant)

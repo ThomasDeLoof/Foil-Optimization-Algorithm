@@ -1,5 +1,5 @@
 # =================================================================================
-# Hydrofoil Optimization — Kulfan CST + Differential Evolution
+# ====== Hydrofoil Optimization — Kulfan CST - Solver Differential Evolution ======
 # =================================================================================
 
 import os
@@ -10,6 +10,7 @@ import numpy as np
 import yaml
 from pathlib import Path
 from scipy.optimize import differential_evolution
+from scipy.special import comb
 
 import aerosandbox as asb
 
@@ -23,9 +24,9 @@ from config.water_atmosphere import Water as Atmosphere
 # 1. CONFIGURATION
 # ─────────────────────────────────────────────────────────────────────────────
 
-with open(ROOT / "config" / "parameters.yaml") as f:
+with open("/Users/thomas/Documents/Dossier Supaero/clubs/Foil/Foil-Optimization-Algorithm/src/config/parameters.yaml") as f:
     phy = yaml.safe_load(f)
-with open(ROOT / "config" / "scenarios.yaml") as f:
+with open("/Users/thomas/Documents/Dossier Supaero/clubs/Foil/Foil-Optimization-Algorithm/src/config/scenarios.yaml") as f:
     SCENARIOS = yaml.safe_load(f)
 
 CASE = phy["case"]
@@ -54,39 +55,97 @@ mast_chord_top     = phy["mast"]["chord_top"]
 mast_chord_bot     = phy["mast"]["chord_bot"]
 mast_profile       = phy["mast"]["profile"]
 x_mast             = phy["mast"]["x_position"]
+cd_mast            = phy["mast"]["cd"]
 N_MAST             = phy["mast"]["n_sections"]
 stab_dihedral_deg  = phy["stab"]["dihedral_deg"]
 s_sweep_deg        = phy["stab"]["sweep_deg"]
 N_STAB             = phy["stab"]["n_sections"]
+N_CST              = phy["Kulfan"]["N_CST"]          
+DELTA              = phy["Kulfan"]["DELTA"]   
+NACA_REF_NAME      = phy["Kulfan"]["NACA_REF_NAME"] 
 
 chord_wl = mast_chord_bot * (1 - profondeur_imm / mast_length) \
          + mast_chord_top * (profondeur_imm / mast_length)
 
 # Traînée & moment du mât (constants pour un cfg donné)
 q_cruise    = 0.5 * atmosphere.density() * cfg["v_cruise"] ** 2
-D_MAST      = q_cruise * ((mast_chord_bot + chord_wl) / 2) * profondeur_imm * 0.011
+D_MAST      = q_cruise * ((mast_chord_bot + chord_wl) / 2) * profondeur_imm * cd_mast
 M_MAST      = -D_MAST * (profondeur_imm / 2)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. PARAMÉTRAGE KULFAN (CST)
 # ─────────────────────────────────────────────────────────────────────────────
 
-N_CST = 4          # Coefficients par surface (extrados + intrados)
-DELTA = 0.12       # Demi-amplitude des bornes autour des valeurs de référence
+ref_airfoil = asb.Airfoil(NACA_REF_NAME)
 
-# Valeurs de référence centrées sur NACA 2412 (cambrure légère, portance/traînée équilibrée)
-# Obtenues par fit CST d'ordre 4 sur le profil NACA 2412.
-_REF_UPPER = np.array([0.195, 0.165, 0.180, 0.160])
-_REF_LOWER = np.array([0.095, 0.040, 0.028, 0.030])
+# ------------ Creation des coordonnées de ref ----------------------------
+def fit_cst_coefficients(airfoil_obj: asb.Airfoil, order: int) -> tuple:
+    """
+    Échantillonne un profil et trouve par moindres carrés les coefficients Kulfan 
+    optimaux pour l'ordre (order) demandé.
+    """
+    # Échantillonnage dense pour un fit précis
+    af_rep = airfoil_obj.repanel(n_points_per_side=100)
+    coords = af_rep.coordinates
+    
+    # Séparation Extrados / Intrados
+    idx_le = np.argmin(coords[:, 0])
+    up_coords = coords[:idx_le + 1][::-1] if coords[0, 0] > coords[-1, 0] else coords[:idx_le + 1]
+    lo_coords = coords[idx_le:]
+    if lo_coords[0, 0] > lo_coords[-1, 0]:
+        lo_coords = lo_coords[::-1]
 
-# Bornes Kulfan : [lower_bound, upper_bound] par coefficient
-# L'extrados reste positif (surface portante), l'intrados peut être légèrement négatif
-BOUNDS_Au = [(_REF_UPPER[i] - DELTA,      _REF_UPPER[i] + DELTA)      for i in range(N_CST)]
-BOUNDS_Al = [(_REF_LOWER[i] - DELTA + 0.02, _REF_LOWER[i] + DELTA)    for i in range(N_CST)]
-# Root et Tip partagent les mêmes bornes (le morphing interpole entre les deux)
-BOUNDS_AIRFOIL = BOUNDS_Au + BOUNDS_Al  # 8 bornes par profil
+    x_u, y_u = up_coords[:, 0], up_coords[:, 1]
+    x_l, y_l = lo_coords[:, 0], lo_coords[:, 1]
 
-# Bornes géométriques (depuis physics.yaml)
+    # Exclusion des points singuliers (x=0, x=1)
+    eps = 0.02
+    mask_u = (x_u > eps) & (x_u < 1 - eps)
+    mask_l = (x_l > eps) & (x_l < 1 - eps)
+    x_u, y_u = x_u[mask_u], y_u[mask_u]
+    x_l, y_l = x_l[mask_l], y_l[mask_l]
+    
+    # Fonctions de classe classiques pour profil à bord d'attaque rond et BA pointu
+    def class_function(x):
+        return np.sqrt(np.maximum(x, 1e-10)) * (1 - x)
+    
+    def bernstein_matrix(x, order):
+        matrix = np.zeros((len(x), order))
+        for i in range(order):
+            matrix[:, i] = comb(order - 1, i) * (x ** i) * ((1 - x) ** (order - 1 - i))
+        return matrix
+
+    # Résolution par moindres carrés : y / C(x) = B(x) * W
+    # Extrados
+    A_u = bernstein_matrix(x_u, order)
+    rhs_u = y_u / (class_function(x_u) + 1e-12)
+    w_u, _, _, _ = np.linalg.lstsq(A_u, rhs_u, rcond=None)
+    
+    # Intrados (Inversé par convention KulfanAirfoil d'AeroSandBox)
+    A_l = bernstein_matrix(x_l, order)
+    rhs_l = -y_l / (class_function(x_l) + 1e-12)
+    w_l, _, _, _ = np.linalg.lstsq(A_l, rhs_l, rcond=None)
+    
+    # Vérification de validité
+    if not (np.all(np.isfinite(w_u)) and np.all(np.isfinite(w_l))):
+        raise ValueError(f"Fit CST non convergé pour {airfoil_obj.name}")
+
+    return w_u, w_l
+
+# Génération dynamiqe des coefficients de référence
+try:
+    _REF_UPPER, _REF_LOWER = fit_cst_coefficients(ref_airfoil, N_CST)
+except Exception as e:
+    print(f"Erreur lors du fit CST automatique : {e}")
+    _REF_UPPER = np.zeros(N_CST)
+    _REF_LOWER = np.zeros(N_CST)
+
+# -------- Calcul dynamique des bornes Kulfan -----------------------
+BOUNDS_Au = [(_REF_UPPER[i] - DELTA, _REF_UPPER[i] + DELTA) for i in range(N_CST)]
+BOUNDS_Al = [(_REF_LOWER[i] - DELTA, _REF_LOWER[i] + DELTA) for i in range(N_CST)]
+BOUNDS_AIRFOIL = BOUNDS_Au + BOUNDS_Al  # 2 * N_CST bornes par profil
+
+# Bornes géométriques 
 BOUNDS_GEOM = [
     tuple(phy["wing"]["span_bounds"]),
     tuple(phy["wing"]["root_chord_bounds"]),
@@ -101,50 +160,62 @@ BOUNDS_GEOM = [
     tuple(phy["alpha"]["bounds"]),
 ]
 
-# Vecteur complet : [Au_root(4), Al_root(4), Au_tip(4), Al_tip(4), géom(11)]
-# Index :            0:4         4:8          8:12        12:16       16:27
+# Vecteur complet 
 BOUNDS = BOUNDS_AIRFOIL + BOUNDS_AIRFOIL + BOUNDS_GEOM
-N_VAR  = len(BOUNDS)  # 27
+N_VAR  = len(BOUNDS) 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. FILTRE GÉOMÉTRIQUE RAPIDE
+# 3. FILTRE GÉOMÉTRIQUE BAS COÛT
 # ─────────────────────────────────────────────────────────────────────────────
 
 TE_MIN_M         = 0.001   # Épaisseur bord de fuite minimale (1 mm)
 THICKNESS_MIN    = 0.06    # Épaisseur relative minimale (6 %)
-THICKNESS_SAMPLE = np.linspace(0.05, 0.95, 15)
+
+def _cst_eval(x: np.ndarray, weights: np.ndarray, upper: bool) -> np.ndarray:
+    """Évalue la formule CST directement depuis les poids de Bernstein."""
+    C = np.sqrt(np.maximum(x, 1e-10)) * (1 - x)
+    n = len(weights) - 1
+    B = np.zeros_like(x)
+    for i, w in enumerate(weights):
+        B += w * comb(n, i, exact=False) * (x ** i) * ((1 - x) ** (n - i))
+    return C * B 
 
 
-def geometric_penalty(af: asb.KulfanAirfoil, chord: float) -> float:
+def geometric_penalty(au_weights: np.ndarray, al_weights: np.ndarray, chord: float) -> float:
     """
-    Retourne 0.0 si le profil est valide, sinon une pénalité proportionnelle
-    à la sévérité du défaut. Appelé avant tout calcul fluide.
+    Vérifie la validité géométrique en évaluant directement la formule CST.
+    Distribution cosinus : dense près du BA et du BF, pas d'angle mort.
     """
     try:
-        coords = af.coordinates
-        if np.any(~np.isfinite(coords)):
-            return 1e6
+        # Distribution cosinus — 80 points, couvre x ∈ [0.001, 0.999]
+        theta   = np.linspace(0.01, np.pi - 0.01, 80)
+        x_check = 0.5 * (1 - np.cos(theta))
 
-        # Épaisseur max
-        t_max = af.max_thickness()
-        if t_max < THICKNESS_MIN:
-            return 1e6 + 1e4 * (THICKNESS_MIN - t_max)
+        y_upper = _cst_eval(x_check, np.array(au_weights), upper=True)
+        y_lower = -_cst_eval(x_check, np.array(al_weights), upper=False)
 
-        # Épaisseur locale — détecte les croisements extrados/intrados
-        # On sépare les coordonnées manuellement pour robustesse
-        x_coords = coords[:, 0]
-        y_coords = coords[:, 1]
-        idx_le   = int(np.argmin(x_coords))
-        upper_y  = np.interp(THICKNESS_SAMPLE, x_coords[idx_le::-1], y_coords[idx_le::-1])
-        lower_y  = np.interp(THICKNESS_SAMPLE, x_coords[idx_le:],    y_coords[idx_le:])
-        thickness = upper_y - lower_y
+        thickness = y_upper - y_lower  # doit être > 0 partout
+
+        # Croisement extrados/intrados
         if np.any(thickness < 0):
             return 1e6 + 1e4 * float(-np.min(thickness))
 
-        # Bord de fuite
-        te_thick = float(af.TE_thickness) * chord
+        # Épaisseur relative max
+        t_max = float(np.max(thickness))
+        if t_max < THICKNESS_MIN:
+            return 1e6 + 1e4 * (THICKNESS_MIN - t_max)
+
+        # Bord de fuite absolu
+        te_thick = float(au_weights[-1] + al_weights[-1]) * 0.5 * chord 
         if te_thick < TE_MIN_M:
             return 5e4 * (TE_MIN_M - te_thick) / TE_MIN_M
+
+        # Épaisseur minimale absolue au BA (x < 2%)
+        x_le    = np.array([0.005, 0.010, 0.015, 0.020])
+        y_u_le  = _cst_eval(x_le, np.array(au_weights), upper=True)
+        y_l_le  = -_cst_eval(x_le, np.array(al_weights), upper=False)
+        if np.any(y_u_le - y_l_le < 1e-4):   # épaisseur < 0.01% corde au BA
+            return 1e6
 
     except Exception:
         return 1e6
@@ -153,10 +224,10 @@ def geometric_penalty(af: asb.KulfanAirfoil, chord: float) -> float:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. ANALYSE STRUCTURELLE — FLEXION À L'EMPLANTURE
+# 4. ANALYSE STRUCTURELLE 
 # ─────────────────────────────────────────────────────────────────────────────
 
-SIGMA_CARBONE = 400e6   # Limite admissible carbone/époxy (Pa) — valeur conservative
+SIGMA_CARBONE = 400e6   # Pa, Limite admissible carbone/époxy (valeur conservative)
 
 
 def section_inertia(af: asb.KulfanAirfoil, chord: float) -> tuple:
@@ -185,27 +256,20 @@ def bending_stress(I_xx: float, y_max: float, lift_semi: float, span_semi: float
     Charge appliquée au centre de portance d'une distribution elliptique (span/4).
     """
     M_flex = lift_semi * (span_semi / 4.0)
-    return M_flex * y_max / (I_xx + 1e-15)
+    return M_flex * y_max / (I_xx + 1e-10)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 5. CONTRAINTE DE CAVITATION
+# 5. ANALYSE FLUIDE
 # ─────────────────────────────────────────────────────────────────────────────
 
-P_ATM   = 101_325.0    # Pa
-P_VAPOR = 2_338.0      # Pa à 20 °C
-RHO     = 1_000.0      # kg/m³
+P  = atmosphere.pressure()
+P_VAPOR = atmosphere.vapor_pressure()
+RHO     = atmosphere.density()
 
+# σ_v = (P_atm + ρgh - P_vapor) / (½ρV²). Cavitation si Cp_min < -σ_v 
 
-def cavitation_number(v: float, depth: float) -> float:
-    """σ_v = (P_atm + ρgh - P_vapor) / (½ρV²). Cavitation si Cp_min < -σ_v."""
-    return (P_ATM + RHO * 9.81 * depth - P_VAPOR) / (0.5 * RHO * v ** 2)
-
-
-# À 9.5 m/s : σ_v ≈ 2.3 | À 13 m/s : σ_v ≈ 1.2
-# Les Cp_min typiques à ces Reynolds (~1–2×10⁶) restent autour de −0.5 à −0.8 :
-# la cavitation n'est pas critique en freeride. Contrainte incluse mais pondérée légèrement.
-SIGMA_CAV = cavitation_number(cfg["v_cruise"], profondeur_imm)
+SIGMA_CAV = (P - P_VAPOR) / (0.5 * RHO * cfg["v_cruise"] ** 2)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -213,28 +277,34 @@ SIGMA_CAV = cavitation_number(cfg["v_cruise"], profondeur_imm)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def decode(x: np.ndarray) -> dict:
-    """Découpe le vecteur DE en sous-ensembles nommés."""
+    """Découpe le vecteur DE en sous-ensembles"""
+    idx = 0
+    Au_root = x[idx : idx + N_CST]; idx += N_CST
+    Al_root = x[idx : idx + N_CST]; idx += N_CST
+    Au_tip  = x[idx : idx + N_CST]; idx += N_CST
+    Al_tip  = x[idx : idx + N_CST]; idx += N_CST
+    
     return {
-        "Au_root":        x[0:N_CST],
-        "Al_root":        x[N_CST:2*N_CST],
-        "Au_tip":         x[2*N_CST:3*N_CST],
-        "Al_tip":         x[3*N_CST:4*N_CST],
-        "span":           float(x[16]),
-        "root_chord":     float(x[17]),
-        "tip_chord":      float(x[18]),
-        "twist":          float(x[19]),
-        "s_span":         float(x[20]),
-        "s_root_chord":   float(x[21]),
-        "s_tip_chord":    float(x[22]),
-        "s_twist":        float(x[23]),
-        "fuselage_length":float(x[24]),
-        "cg_ratio":       float(x[25]),
-        "alpha":          float(x[26]),
+        "Au_root":        Au_root,
+        "Al_root":        Al_root,
+        "Au_tip":         Au_tip,
+        "Al_tip":         Al_tip,
+        "span":           float(x[idx]),
+        "root_chord":     float(x[idx+1]),
+        "tip_chord":      float(x[idx+2]),
+        "twist":          float(x[idx+3]),
+        "s_span":         float(x[idx+4]),
+        "s_root_chord":   float(x[idx+5]),
+        "s_tip_chord":    float(x[idx+6]),
+        "s_twist":        float(x[idx+7]),
+        "fuselage_length":float(x[idx+8]),
+        "cg_ratio":       float(x[idx+9]),
+        "alpha":          float(x[idx+10]),
     }
 
 
 def interpolate_kulfan(af1: asb.KulfanAirfoil, af2: asb.KulfanAirfoil, r: float) -> asb.KulfanAirfoil:
-    """Interpolation linéaire des coefficients CST entre root (r=0) et tip (r=1)."""
+    """Interpolation linéaire des coefficients CST entre root et tip"""
     return asb.KulfanAirfoil(
         upper_weights       = (1 - r) * af1.upper_weights       + r * af2.upper_weights,
         lower_weights       = (1 - r) * af1.lower_weights       + r * af2.lower_weights,
@@ -244,10 +314,6 @@ def interpolate_kulfan(af1: asb.KulfanAirfoil, af2: asb.KulfanAirfoil, r: float)
 
 
 def build_airplane(p: dict) -> tuple:
-    """
-    Construit l'avion AeroSandBox depuis le dictionnaire de paramètres.
-    Retourne (airplane, wing, stab, mean_chord, af_root) ou lève une exception.
-    """
     af_root = asb.KulfanAirfoil(upper_weights=p["Au_root"], lower_weights=p["Al_root"])
     af_tip  = asb.KulfanAirfoil(upper_weights=p["Au_tip"],  lower_weights=p["Al_tip"])
 
@@ -353,38 +419,21 @@ def build_airplane(p: dict) -> tuple:
 # 7. FONCTION OBJECTIF — TRAÎNÉE + PÉNALITÉS
 # ─────────────────────────────────────────────────────────────────────────────
 
-K = 500.0    # Coefficient de pénalité (empiriquement calibré)
-
-
 def objective(x: np.ndarray) -> float:
     """
-    Minimise D_total = D_aéro + D_mât.
-    Les contraintes sont gérées par pénalité quadratique (sauf géométrie = fail-fast).
-
+    Minimise la trainée
     Contraintes :
       Hard (filtre géométrique) : épaisseur, croisement, TE
-      Soft (pénalité K×violation²) :
-        - L ≥ Weight
-        - |M_total| / (W·c̄) ≤ 5%   [moment d'équilibre]
-        - Surfaces aile & stab dans la plage cible
-        - Force stab dans la plage cible
-        - Marge statique dans sm_range
-        - σ_flexion ≤ σ_carbone
-        - CL décollage ≤ CL_max
-        - Volume de queue dans vh_range
-        - Cp_min ≥ -σ_cavitation  [faible poids]
+      Soft (pénalité K×violation²) : équilibres et contraintes fluides/structurelles
     """
     p = decode(x)
 
     # ── Filtre géométrique (fast-fail) ───────────────────────────────────────
-    af_root_tmp = asb.KulfanAirfoil(upper_weights=p["Au_root"], lower_weights=p["Al_root"])
-    af_tip_tmp  = asb.KulfanAirfoil(upper_weights=p["Au_tip"],  lower_weights=p["Al_tip"])
-
-    geo_pen = geometric_penalty(af_root_tmp, p["root_chord"]) \
-            + geometric_penalty(af_tip_tmp,  p["tip_chord"])
+    geo_pen = geometric_penalty(p["Au_root"], p["Al_root"], p["root_chord"]) \
+            + geometric_penalty(p["Au_tip"],  p["Al_tip"],  p["tip_chord"]) 
     if geo_pen > 0:
-        return 1e6 + geo_pen
-
+        return 1e6 + geo_pen # Arrêt immédiat si c'est un vrai monstre
+    
     # ── Construction de l'avion ───────────────────────────────────────────────
     try:
         airplane, wing, stab, mean_chord, af_root, _, _ = build_airplane(p)
@@ -406,79 +455,108 @@ def objective(x: np.ndarray) -> float:
 
     # ── Pénalités ─────────────────────────────────────────────────────────────
     penalty = 0.0
+    
+    # Coefficients de pénalité (par niveau d'importance)
+    K1 = 2000      # Contraintes critiques
+    K2 = 1000      # Contraintes de pilotage
+    K3 = 500       # Contraintes de confort
+    '''
+    Calibrage empirique: pour que l'opti ne passe pas outre les contraintes soft, 
+    il faut que K soit d'un ordre de grandeur supérieur à la fonction objectif,
+    içi F = 80N environ, donc K entre 500 et 2000
+    ATTENTION : normaliser les contraintes
+    '''
 
-    def soft(violation: float) -> float:
-        """Pénalité quadratique — nulle si violation ≤ 0."""
-        return K * max(violation, 0.0) ** 2
 
-    # 1. Portance = Poids
-    penalty += soft((WEIGHT - L) / WEIGHT)
+    # Fonction générique pour appliquer le carré uniquement en cas de dépassement strict
+    def soft_penalty(valeur: float, limite_basse: float, limite_haute: float, ref: float) -> float:
+        if valeur < limite_basse:
+            return ((limite_basse - valeur) / (abs(ref) + 1e-9)) ** 2
+        elif valeur > limite_haute:
+            return ((valeur - limite_haute) / (abs(ref) + 1e-9)) ** 2
+        return 0.0
 
-    # 2. Équilibre de tangage (soft, ±5 % c̄)
+    # Portance = Poids 
+    penalty += K1 * ((WEIGHT - L) / WEIGHT) ** 2
+
+    # Équilibre de tangage 
     X_cg      = p["cg_ratio"] * mean_chord
     M_wing    = Cm * q_cruise * wing.area() * mean_chord
     M_greem   = rig_mass * 9.81 * (-(X_cg - x_mast))
     M_total   = M_wing + M_MAST + M_greem
-    M_norm    = abs(M_total) / (WEIGHT * mean_chord)
-    if M_norm > 0.05:
-        penalty += K * (M_norm / 0.05) ** 2
+    M_reference = WEIGHT * mean_chord
+    M_tol_brute = 0.05 * M_reference  # On tolère un moment résiduel 
+    if abs(M_total) > M_tol_brute:
+        penalty += K1 * ((abs(M_total) - M_tol_brute) / M_reference) ** 2
 
-    # 3. Surface aile
-    S_wing = wing.area()
-    penalty += soft(cfg["area_target_range"][0] - S_wing)
-    penalty += soft(S_wing - cfg["area_target_range"][1])
-
-    # 4. Surface stab
-    S_stab = stab.area()
-    penalty += soft(cfg["stab_area_range"][0] - S_stab)
-    penalty += soft(S_stab - cfg["stab_area_range"][1])
-
-    # 5. Force stab
-    try:
-        F_stab = float(aero["wing_aero_components"][1].L)
-        penalty += soft(F_stab - cfg["stab_load_range"][1])
-        penalty += soft(cfg["stab_load_range"][0] - F_stab)
-    except Exception:
-        penalty += K
-
-    # 6. Marge statique — perturbation numérique +0.1°
-    try:
-        op2   = asb.OperatingPoint(velocity=cfg["v_cruise"], alpha=p["alpha"] + 0.1, atmosphere=atmosphere)
-        aero2 = asb.AeroBuildup(airplane, op2).run()
-        dCL   = float(aero2["CL"]) - CL
-        dCm   = float(aero2["Cm"]) - float(aero["Cm"])
-        SM    = -(dCm / (dCL + 1e-9))
-        penalty += soft(cfg["sm_range"][0] - SM)
-        penalty += soft(SM - cfg["sm_range"][1])
-    except Exception:
-        penalty += K
-
-    # 7. Contrainte structurelle — flexion à l'emplanture
+    # Contrainte structurelle 
     try:
         I_xx, y_max = section_inertia(af_root, p["root_chord"])
         sigma       = bending_stress(I_xx, y_max, WEIGHT / 2, p["span"] / 2)
-        penalty    += soft((sigma - SIGMA_CARBONE) / SIGMA_CARBONE)
+        if sigma > SIGMA_CARBONE:
+            penalty += K1 * ((sigma - SIGMA_CARBONE) / SIGMA_CARBONE) ** 2
     except Exception:
-        penalty += K * 0.5
+        penalty += K1
 
-    # 8. CL décollage
-    q_to    = 0.5 * atmosphere.density() * cfg["v_takeoff"] ** 2
+    # CL décollage 
+    S_wing  = wing.area()
+    q_to    = 0.5 * float(atmosphere.density()) * cfg["v_takeoff"] ** 2
     CL_to   = WEIGHT / (q_to * S_wing + 1e-9)
-    penalty += soft(CL_to - CL_MAX_TO)
+    if CL_to > CL_MAX_TO:
+        penalty += K1 * ((CL_to - CL_MAX_TO) / CL_MAX_TO) ** 2
 
-    # 9. Volume de queue
-    v_h = (S_stab * p["fuselage_length"]) / (S_wing * mean_chord + 1e-9)
-    penalty += soft(cfg["vh_range"][0] - v_h)
-    penalty += soft(v_h - cfg["vh_range"][1])
+    # Marge statique (version analytique bas coût avec le volume de queue)
+    try:
+        # approximation foyer à 25% puis décalage dû au stab de 80% du point neutre
+        x_ac_wing = float(wing.xsecs[0].xyz_le[0]) + 0.25 * mean_chord
+        v_h       = (stab.area() * p["fuselage_length"]) / (S_wing * mean_chord + 1e-9)
+        x_neutral_point_ratio = (x_ac_wing / mean_chord) + (0.80 * v_h)
+        SM        = x_neutral_point_ratio - p["cg_ratio"]
 
-    # 10. Cavitation (poids faible — non critique en freeride)
-    # Cp_min ≈ -2·CL (estimation conservative profil mince à Re > 10^6)
-    Cp_min_est = -2.0 * abs(CL)
-    if Cp_min_est < -SIGMA_CAV:
-        penalty += K * 0.05 * ((-Cp_min_est - SIGMA_CAV) / SIGMA_CAV) ** 2
+        sm_low, sm_high = cfg["sm_range"][0], cfg["sm_range"][1]
+        penalty += K2 * soft_penalty(SM, sm_low, sm_high, ref=sm_low)
+    except Exception:
+        penalty += K2
+
+    # Surface aile 
+    sw_low, sw_high = cfg["area_target_range"][0], cfg["area_target_range"][1]
+    S_ref = (sw_low + sw_high) / 2
+    penalty += K2 * soft_penalty(S_wing, sw_low, sw_high, ref=S_ref)
+
+    # Surface stab
+    S_stab = stab.area()
+    ss_low, ss_high = cfg["stab_area_range"][0], cfg["stab_area_range"][1]
+    S_stab_ref = (ss_low + ss_high) / 2
+    penalty += K2 * soft_penalty(S_stab, ss_low, ss_high, ref=S_stab_ref)
+
+    # Force stab 
+    try:
+        F_stab = float(aero["wing_aero_components"][1].L)
+        f_low, f_high = cfg["stab_load_range"][0], cfg["stab_load_range"][1]
+        F_ref  = abs(f_high - f_low) if abs(f_high - f_low) > 1e-3 else 50.0
+        penalty += K3 * soft_penalty(F_stab, f_low, f_high, ref=F_ref)
+    except Exception:
+        penalty += K3
+
+    # Volume de queue Vh (Vérification géométrique pour le comportement de l'assiette)
+    try:
+        vh_low, vh_high = cfg["vh_range"][0], cfg["vh_range"][1]
+        penalty += K3 * soft_penalty(v_h, vh_low, vh_high, ref=vh_low)
+    except Exception:
+        penalty += K3
+
+    # Cavitation 
+    try:
+        t_max = af_root.max_thickness() 
+    except Exception:
+        t_max = 0.12
+
+    Cp_min_est = -(1.2 * abs(CL) + 3.0 * t_max)
+    if Cp_min_est < SIGMA_CAV:
+        # Correction du bug syntaxique (ajout du signe + et du multiplicateur *)
+        penalty += K3 * ((-Cp_min_est - SIGMA_CAV) / SIGMA_CAV) ** 2
 
     return D_total + penalty
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 8. OPTIMISATION — DIFFERENTIAL EVOLUTION
@@ -487,18 +565,18 @@ def objective(x: np.ndarray) -> float:
 DE_PARAMS = {
     "strategy":   "best1bin",    # Bonne convergence sur problèmes continus
     "maxiter":    300,
-    "popsize":    12,            # 12 × 27 vars = 324 individus par génération
+    "popsize":    12,            
     "tol":        1e-5,
     "mutation":   (0.5, 1.0),   # Plage de mutation adaptative
     "recombination": 0.85,
     "seed":       42,
-    "workers":    -1,            # Parallèle sur tous les cœurs disponibles
-    "polish":     True,          # Affinage L-BFGS-B sur le meilleur individu
+    "workers":    -1,            # Parallel processing sur tous les cœurs disponibles
+    "polish":     False,          # Affinage L-BFGS-B sur le meilleur individu
     "updating":   "deferred",    # Nécessaire pour workers=-1
     "disp":       True,
 }
 
-
+# Run à un seul point d'entrée
 def run_optimization() -> np.ndarray:
     print(f"\n{'='*65}")
     print(f"  DIFFERENTIAL EVOLUTION — CAS : {CASE.upper()}")
@@ -512,9 +590,91 @@ def run_optimization() -> np.ndarray:
     result = differential_evolution(objective, BOUNDS, **DE_PARAMS)
 
     print(f"\n  Convergence : {'✓' if result.success else '✗ (partielle)'}")
-    print(f"  D_total     : {result.fun:.3f} N")
+    print(f"  Fonction objectif     : {result.fun:.3f} N")
     print(f"  Évaluations : {result.nfev}")
     return result.x
+
+from scipy.stats import qmc
+from scipy.optimize import minimize
+
+# Run à plusieurs points d'entrée distribués uniformément
+def run_multistart(n_starts: int = 5) -> np.ndarray:
+    """
+    Lance n_starts runs DE avec des initialisations Sobol décalées.
+    Chaque run couvre une région différente de l'espace de recherche.
+    Retourne le meilleur individu global.
+    """
+    print(f"\n{'='*65}")
+    print(f"  MULTI-START DE — {n_starts} runs | CAS : {CASE.upper()}")
+    print(f"{'='*65}\n")
+
+    lb = np.array([b[0] for b in BOUNDS])
+    ub = np.array([b[1] for b in BOUNDS])
+
+    best_x   = None
+    best_val = np.inf
+
+    for run_idx in range(n_starts):
+        seed = 42 + run_idx * 137   # Seeds décorrélées
+
+        # Population initiale Sobol — couvre l'espace plus uniformément que random
+        # Chaque run utilise un scramble différent pour diversifier
+        pop_size  = DE_PARAMS["popsize"] * N_VAR
+        sampler   = qmc.Sobol(d=N_VAR, scramble=True, seed=seed)
+        init_pop  = qmc.scale(sampler.random(pop_size), lb, ub)
+
+        print(f"  ─── Run {run_idx + 1}/{n_starts} (seed={seed}) ───")
+
+        result = differential_evolution(
+            objective,
+            BOUNDS,
+            init=init_pop,            # Population Sobol
+            seed=seed,
+            strategy=DE_PARAMS["strategy"],
+            maxiter=DE_PARAMS["maxiter"],
+            popsize=DE_PARAMS["popsize"],
+            tol=DE_PARAMS["tol"],
+            mutation=DE_PARAMS["mutation"],
+            recombination=DE_PARAMS["recombination"],
+            workers=DE_PARAMS["workers"],
+            polish=False,             # On polit séparément après
+            updating=DE_PARAMS["updating"],
+            disp=True,
+            callback=_de_callback,
+        )
+
+        print(f"  Run {run_idx+1} → Fonction Objectif = {result.fun:.3f} N | "
+              f"{'OK' if result.success else 'Failed'}")
+
+        if result.fun < best_val:
+            best_val = result.fun
+            best_x   = result.x.copy()
+            print(f"  - Nouveau meilleur global : {best_val:.3f} N\n")
+
+    # Affinage final Nelder-Mead sur le meilleur individu
+    print(f"\n  Affinage final (Nelder-Mead) depuis le meilleur global...")
+    refined = minimize(
+        objective,
+        best_x,
+        method="Nelder-Mead",
+        options={"maxiter": 5000, "xatol": 1e-7, "fatol": 1e-7, "disp": True},
+    )
+    if refined.fun < best_val:
+        print(f"  ✓ Affinage réussi : {best_val:.3f} → {refined.fun:.3f} N")
+        best_x = refined.x
+
+    return best_x
+
+
+_run_counter = {"n": 0}
+
+def _de_callback(xk: np.ndarray, convergence: float) -> bool:
+    """Affiche la progression tous les 20 appels"""
+    _run_counter["n"] += 1
+    if _run_counter["n"] % 20 == 0:
+        val = objective(xk)
+        print(f"    gen ~{_run_counter['n']} | convergence={convergence:.4f} | D={val:.2f} N")
+    return False   # False = ne pas arrêter
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -546,7 +706,12 @@ def full_report(x: np.ndarray) -> None:
 
     op2   = asb.OperatingPoint(velocity=cfg["v_cruise"], alpha=p["alpha"] + 0.1, atmosphere=atmosphere)
     aero2 = asb.AeroBuildup(airplane, op2).run()
-    SM    = -((float(aero2["Cm"]) - Cm) / (float(aero2["CL"]) - CL + 1e-9))
+    SM_true    = -((float(aero2["Cm"]) - Cm) / (float(aero2["CL"]) - CL + 1e-9))
+
+    x_ac_wing = float(wing.xsecs[0].xyz_le[0]) + 0.25 * mean_chord
+    v_h       = (stab.area() * p["fuselage_length"]) / (wing.area() * mean_chord + 1e-9)
+    x_neutral_point_ratio = (x_ac_wing / mean_chord) + (0.80 * v_h)
+    SM_approx       = x_neutral_point_ratio - p["cg_ratio"]
 
     F_stab  = float(aero["wing_aero_components"][1].L)
     v_h     = (stab.area() * p["fuselage_length"]) / (wing.area() * mean_chord)
@@ -564,7 +729,8 @@ def full_report(x: np.ndarray) -> None:
     print(f"  Corde R/T        : {p['root_chord']*1000:.0f} / {p['tip_chord']*1000:.0f} mm")
     print(f"  Surface stab     : {stab.area()*1e4:.0f} cm²")
     print(f"  Fuselage         : {p['fuselage_length']*100:.0f} cm")
-    print(f"  Marge statique   : {SM*100:.1f} %")
+    print(f"  Marge statique théorique   : {SM_true*100:.1f} %")
+    print(f"  Marge statique approximée pour l'optimisation   : {SM_approx*100:.1f} %")
     print(f"  Moment résiduel  : {M_total:.4f} N·m")
     print(f"  Force stab       : {F_stab:.1f} N")
     print(f"  Volume de queue  : {v_h:.3f}")
@@ -581,7 +747,7 @@ def full_report(x: np.ndarray) -> None:
 
     # Fiche technique Markdown
     _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D, CL, Cm,
-               SM, F_stab, v_h, M_total, sigma, rho, mu, X_cg)
+               SM_true, SM_approx, F_stab, v_h, M_total, sigma, rho, mu, X_cg)
 
     # Profils .dat (format Selig pour XFLR5)
     airplane_sol = airplane
@@ -626,7 +792,7 @@ def _export_dat(af, filepath, name):
 
 
 def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D, CL, Cm,
-               SM, F_stab, v_h, M_total, sigma, rho, mu, X_cg):
+               SM_true, SM_approx, F_stab, v_h, M_total, sigma, rho, mu, X_cg):
     now_str = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     Re_root = rho * cfg["v_cruise"] * p["root_chord"] / mu
     Re_tip  = rho * cfg["v_cruise"] * p["tip_chord"]  / mu
@@ -678,7 +844,8 @@ def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D, CL, Cm,
         f"", f"---", f"",
         f"## 4. Stabilité & Structure", f"",
         f"| Paramètre | Valeur |", f"|:---|:---|",
-        f"| Marge statique | {SM*100:.1f} % |",
+        f"| Marge statique théorique | {SM_true*100:.1f} % |",
+        f"| Marge statique approximée pour l'optimisation | {SM_approx*100:.1f} % |",
         f"| Position CG | {p['cg_ratio']*100:.1f} % c̄ ({X_cg*100:.1f} cm du BA) |",
         f"| Moment résiduel | {M_total:.4f} N·m |",
         f"| Force stab | {F_stab:.1f} N |",
@@ -689,10 +856,10 @@ def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D, CL, Cm,
     ]
 
     warnings_list = []
-    if SM * 100 > 70:
-        warnings_list.append(f"⚠️ SM élevée ({SM*100:.1f}%) — maniabilité réduite.")
-    if SM * 100 < 5:
-        warnings_list.append(f"⚠️ SM très faible ({SM*100:.1f}%) — risque d'instabilité.")
+    if SM_true * 100 > 70:
+        warnings_list.append(f"⚠️ SM élevée ({SM_true*100:.1f}%) — maniabilité réduite.")
+    if SM_true * 100 < 5:
+        warnings_list.append(f"⚠️ SM très faible ({SM_true*100:.1f}%) — risque d'instabilité.")
     if abs(M_total) > 5:
         warnings_list.append(f"⚠️ Moment résiduel important ({M_total:.2f} N·m).")
     if sigma > SIGMA_CARBONE:
@@ -705,9 +872,13 @@ def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D, CL, Cm,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 10. POINT D'ENTRÉE
+# 10. POINT D'ENTRÉE ET AFFINAGE FINAL
 # ─────────────────────────────────────────────────────────────────────────────
 
+from scipy.optimize import minimize
+
+N_starts = phy["search_space"]["N_starts"]
+
 if __name__ == "__main__":
-    x_best = run_optimization()
+    x_best   = run_multistart(n_starts=N_starts)
     full_report(x_best)
