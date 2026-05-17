@@ -548,19 +548,17 @@ def objective(x: np.ndarray) -> float:
     if CL_to > CL_MAX_TO:
         penalty += K1 * ((CL_to - CL_MAX_TO) / CL_MAX_TO) ** 2
 
-    # Marge statique (calculé seulement si la pénalité globale est déjà petite pour optimiser)
-    if penalty<K1: 
-        try:
-            # approximation foyer à 25% puis décalage dû au stab de 80% du point neutre
-            op2   = asb.OperatingPoint(velocity=cfg["v_cruise"], alpha=p["alpha"] + 0.1, atmosphere=atmosphere)
-            aero2 = asb.AeroBuildup(airplane, op2).run()
-            SM    = -((float(aero2["Cm"]) - Cm) / (float(aero2["CL"]) - CL + 1e-9))
+    # Marge statique
+    try:
+        op2   = asb.OperatingPoint(velocity=cfg["v_cruise"], alpha=p["alpha"] + 0.1, atmosphere=atmosphere)
+        aero2 = asb.AeroBuildup(airplane, op2).run()
+        SM    = -((float(aero2["Cm"]) - Cm) / (float(aero2["CL"]) - CL + 1e-9))
 
-            sm_low, sm_high = cfg["sm_range"][0], cfg["sm_range"][1]
-            penalty += K2 * soft_penalty(SM, sm_low, sm_high, ref=sm_low)
-        except Exception:
-            penalty += K2
-    else : penalty += K1 
+        sm_low, sm_high = cfg["sm_range"][0], cfg["sm_range"][1]
+        penalty += K2 * soft_penalty(SM, sm_low, sm_high, ref=sm_low)
+    except Exception:
+        penalty += K2
+
 
     # Surface aile 
     sw_low, sw_high = cfg["area_target_range"][0], cfg["area_target_range"][1]
