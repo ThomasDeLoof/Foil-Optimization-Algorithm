@@ -12,7 +12,7 @@ Three approaches have been tried in sequence. The current one is **V3**.
 
 ## V1 — parametric NACA with IPOPT
 
-The first script (`optParametriqueV1.py`) ran a structured sweep over NACA camber, thickness and sweep, with IPOPT handling the trim. It produced coherent wingfoil-class geometries but had a few persistent issues:
+The first script (`optFixedProfileV1.py`) ran a structured sweep over NACA camber, thickness and sweep, with IPOPT handling the trim. It produced coherent wingfoil-class geometries but had a few persistent issues:
 
 * The solver was boxed into tight parameter bounds. Because IPOPT is local and gradient-based, it hit these bounds constantly and either got stuck or refused to converge without manual tuning of the initial guess.
 * When I loosened the bounds to help convergence, the optimizer drifted into "laboratory" designs — aspect ratios above 15, stabilizers producing positive lift, walls thinner than 1 mm — because nothing in the cost function captured structural strength or manufacturing limits.
@@ -30,17 +30,26 @@ V2 works, but giving the airfoil that much freedom makes the search costly and n
 
 ---
 
-## V3 — current state
+## Current state
 
-V3 keeps the physics from V2 and goes the other way on the airfoil question. The section is **fixed per scenario** (a NACA chosen for each discipline), and the optimizer is free to choose the **planform** — span, root chord, tip chord — along with the trim variables: CG position, root incidence, washout, stab incidence, alpha at cruise, alpha at takeoff, fuselage length. Ten decision variables in total.
+`optFixedProfileV2` keeps the physics from the previous script and goes the other way on the airfoil question. The section is **fixed per scenario** (a NACA or others chosen for each discipline), and the optimizer is free to choose the **planform** — span, root chord, tip chord — along with the trim variables: CG position, root incidence, washout, stab incidence, alpha at cruise, alpha at takeoff, fuselage length. Ten decision variables in total.
 
 ### How the geometry is built
 
 The wing chord follows a pure ellipse, `c(r) = c_tip + (c_root − c_tip)·√(1 − r²)`, with the quarter-chord swept via a power law (`r^1.5`) plus a smoothstep "tip kick" applied only over the outer 15%. The kick amount is computed from the current chord shrinkage, so the saumon stays clearly behind the previous section whatever the dimensions the optimizer settles on. Without it, the tip section visually "tucks" forward of the penultimate section, which doesn't look like any industry foil. The stab uses the same construction with its own (smaller) kick.
 
-Reference dimensions for the wingfoil scenario are taken from the AXIS BSC 890 (1290 cm², AR 6.43, 170 mm max chord) and the AXIS Skinny 365/55 stab (168 cm², AR 8.06). Tip chords (53 mm and 13 mm) were back-solved so that the elliptic distribution reproduces the manufacturer's areas to within 0.1%. Other scenarios — windsurf, downwind, pumping — have their own per-scenario stab dimensions and wing airfoil in `scenarios.yaml`. Profile choice is per-scenario where it matters (NACA 2410 for wingfoil, 2412 for windsurf/downwind, 2415 for pumping); the stab profile is the same NACA 0012 everywhere and lives in `parameters.yaml`.
+Each scenario is anchored to a real industry foil whose specifications are public. The warm-start dimensions and the companion stab were chosen so that the optimizer starts from a known good design and the area target range overlaps the manufacturer's value. The tip chord is back-solved numerically so that the pure-elliptic chord law reproduces the manufacturer's stated area within 0.5 %.
 
-The airfoil loader is wrapped in a small fallback because AeroSandBox's NACA generator is incomplete — most 6-series profiles (`naca63412`, `naca64412`, …) silently return empty coordinates, while the modified 6A variants like `naca64a410` work fine, as do Eppler 836-838 and the SD7037 family. The loader checks for valid coordinates and falls back to a sensible NACA 4-digit if the requested profile isn't usable.
+| Scenario | Reference wing | Span | Area | AR | Profile | Companion stab |
+|---|---|---|---|---|---|---|
+| **wingfoil** | [AXIS BSC 890](https://www.mackiteboarding.com/axis-bsc-carbon-front-wing-890/) | 890 mm | 1290 cm² | 6.43 | SD7062 (also tested NACA 4412) | [AXIS Skinny 365/55](https://www.mackiteboarding.com/news/axis-skinny-vs-progressive-stabilizers/) — 365 mm / 168 cm² / AR 8.06 |
+| **windsurf** | [Starboard Race 800](https://starboardfoils.com/pages/2022-race) | 800 mm | 800 cm² | 8.0 | NACA 1410 (thin, low camber — matches the Tom Speer "thin and relatively symmetrical" race profile) | Starboard Tail 255 — 400 mm / 255 cm² / AR 6.3 |
+| **downwind** | [Armstrong HA 1080](https://foiloutlet.com/product/armstrong-ha1080-foil-kit/) | 1020 mm | 1080 cm² | 9.6 | Eppler 387 (thin laminar) | [Armstrong HA 195](https://foiloutlet.com/product/armstrong-ha195-high-aspect-tail-wing/) — 385 mm / 195 cm² / AR 7.6 |
+| **pumping** | [Armstrong HA 1525](https://foiloutlet.com/product/armstrong-ha1525-foil-front-wing/) | 1200 mm | 1525 cm² | 9.5 | Eppler 423 (high camber for low-speed CL_max) | Armstrong HA 195 (same kit as downwind) |
+
+A quick word on the design rationale behind each pair. The **wingfoil** BSC 890 is a moderate-aspect freeride wing, sized for forgiving takeoff at 5-6 m/s; the camber of its profile lands the cruise CL around 0.14 at 9.5 m/s, which is low but normal for the discipline. The **windsurf** Race 800 trades wing area for raw glide — half the area of the wingfoil at 60 % more speed — and uses a thin, near-symmetric section because the cruise CL drops below 0.15. The **downwind** HA 1080 is the "long, thin glider" of the family, with the highest aspect ratio of the four; its companion HA 195 stab is itself high-aspect (AR 7.6). The **pumping** HA 1525 is the biggest of the lot, sized to take off below 4 m/s, with a strongly-cambered Eppler 423 to keep CL_max usable in pumping cycles.
+
+The airfoil loader has a small fallback because AeroSandBox's NACA generator is incomplete — most 6-series profiles (`naca63412`, `naca64412`, …) silently return empty coordinates, while the modified 6A variants like `naca64a410` work fine, as do Eppler 387/423/836-838 and the SD7037/7062 family. The loader checks the coordinate count and falls back to a sensible NACA 4-digit if the requested profile isn't usable.
 
 ### Aerodynamics
 
@@ -62,16 +71,16 @@ The root cross-section is modeled as a hollow elliptic carbon shell, 1.5 mm thic
 
 ### Scripts
 
-* `src/V3.py` — main optimizer (Differential Evolution + L-BFGS-B polish), reports, XFLR5 XML export, plus a `.dat` for every airfoil used so XFLR5 picks them up automatically when you open the plane file
+* `src/optFixedProfileV2.py` — main optimizer (Differential Evolution + L-BFGS-B polish), reports, XFLR5 XML export, plus a `.dat` for every airfoil used so XFLR5 picks them up automatically when you open the plane file
 * `src/calibrate_de_da.py` — one-shot empirical calibration of `de_da` against VLM, prints the slope and intercept to paste into V3
-* `src/refine_3d.py` — runs LiftingLine on the DE solution and does a small Nelder-Mead refinement of the trim angles while keeping the planform fixed
+* `src/optFixedProfileRefine3d.py` — runs LiftingLine on the DE solution and does a small Nelder-Mead refinement of the trim angles while keeping the planform fixed
 
 The intended workflow:
 
 ```bash
-python src/V3.py                  # ~10 min — full DE on planform + trim
+python src/optFixedProfileV2.py                  # ~10 min — full DE on planform + trim
 python src/calibrate_de_da.py     # ~5 s — re-run if wing/stab dimensions change
-python src/refine_3d.py           # ~2 min — 3D refinement of trim
+python src/optFixedProfileRefine3d.py           # ~2 min — 3D refinement of trim
 ```
 
 ### Scenarios

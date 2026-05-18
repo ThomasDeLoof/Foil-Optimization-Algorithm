@@ -15,7 +15,7 @@ import numpy as np
 import aerosandbox as asb
 from scipy.optimize import minimize
 
-import V3                                # build_airplane, constants, etc.
+import optFixedProfileV2                                # build_airplane, constants, etc.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -27,19 +27,19 @@ def aero_3d(airplane: asb.Airplane, alpha: float) -> dict:
         wings=airplane.wings, xyz_ref=airplane.xyz_ref,
         s_ref=airplane.s_ref, c_ref=airplane.c_ref, b_ref=airplane.b_ref,
     )
-    op = asb.OperatingPoint(velocity=V3.cfg["v_cruise"], alpha=alpha,
-                            atmosphere=V3.atmosphere)
+    op = asb.OperatingPoint(velocity=optFixedProfileV2.cfg["v_cruise"], alpha=alpha,
+                            atmosphere=optFixedProfileV2.atmosphere)
     a = asb.LiftingLine(plane_ll, op).run()
     return {k: float(a[k]) for k in ("L", "D", "Cm", "CL", "CD")}
 
 
 def compare_2d_3d(x: np.ndarray) -> None:
     """Affiche D_2D (AeroBuildup) vs D_3D (LiftingLine) sur le même X."""
-    p = V3.decode(np.clip(x, V3.LB, V3.UB))
-    airplane, *_ = V3.build_airplane(p)
+    p = optFixedProfileV2.decode(np.clip(x, optFixedProfileV2.LB, optFixedProfileV2.UB))
+    airplane, *_ = optFixedProfileV2.build_airplane(p)
 
-    op = asb.OperatingPoint(velocity=V3.cfg["v_cruise"], alpha=p["alpha_cruise"],
-                            atmosphere=V3.atmosphere)
+    op = asb.OperatingPoint(velocity=optFixedProfileV2.cfg["v_cruise"], alpha=p["alpha_cruise"],
+                            atmosphere=optFixedProfileV2.atmosphere)
     ab = asb.AeroBuildup(airplane, op).run()
     ll = aero_3d(airplane, p["alpha_cruise"])
 
@@ -65,11 +65,11 @@ def _objective_3d(x_trim: np.ndarray, x_template: np.ndarray) -> float:
     """Coût = D_3D + pénalités lift/moment (mêmes que V3 mais avec LiftingLine)."""
     x = x_template.copy()
     x[TRIM_INDICES] = x_trim
-    x = np.clip(x, V3.LB, V3.UB)
-    p = V3.decode(x)
+    x = np.clip(x, optFixedProfileV2.LB, optFixedProfileV2.UB)
+    p = optFixedProfileV2.decode(x)
 
     try:
-        airplane, wing, stab, mc, _, _ = V3.build_airplane(p)
+        airplane, wing, stab, mc, _, _ = optFixedProfileV2.build_airplane(p)
         ll = aero_3d(airplane, p["alpha_cruise"])
         L, D, Cm, CL = ll["L"], ll["D"], ll["Cm"], ll["CL"]
     except Exception:
@@ -77,33 +77,33 @@ def _objective_3d(x_trim: np.ndarray, x_template: np.ndarray) -> float:
 
     # Décollage à AeroBuildup (rapide, peu d'effets 3D dominants à V_takeoff)
     try:
-        op_to = asb.OperatingPoint(velocity=V3.cfg["v_takeoff"],
-                                   alpha=p["alpha_to"], atmosphere=V3.atmosphere)
+        op_to = asb.OperatingPoint(velocity=optFixedProfileV2.cfg["v_takeoff"],
+                                   alpha=p["alpha_to"], atmosphere=optFixedProfileV2.atmosphere)
         ab_to = asb.AeroBuildup(airplane, op_to).run()
         L_to, D_to, CL_to = float(ab_to["L"]), float(ab_to["D"]), float(ab_to["CL"])
     except Exception:
         return 1e6
 
-    D_total = D + V3.D_MAST
+    D_total = D + optFixedProfileV2.D_MAST
     pen = 0.0
-    pen += V3.K1 * V3.soft_penalty(L,    V3.WEIGHT, np.inf, ref=V3.WEIGHT)
-    pen += V3.K1 * V3.soft_penalty(L_to, V3.WEIGHT, np.inf, ref=V3.WEIGHT)
-    pen += V3.K1 * V3.soft_penalty(CL_to, -np.inf, V3.CL_MAX_TO, ref=V3.CL_MAX_TO)
+    pen += optFixedProfileV2.K1 * optFixedProfileV2.soft_penalty(L,    optFixedProfileV2.WEIGHT, np.inf, ref=optFixedProfileV2.WEIGHT)
+    pen += optFixedProfileV2.K1 * optFixedProfileV2.soft_penalty(L_to, optFixedProfileV2.WEIGHT, np.inf, ref=optFixedProfileV2.WEIGHT)
+    pen += optFixedProfileV2.K1 * optFixedProfileV2.soft_penalty(CL_to, -np.inf, optFixedProfileV2.CL_MAX_TO, ref=optFixedProfileV2.CL_MAX_TO)
 
     X_cg = p["cg_ratio"] * mc
-    M_total = (Cm * V3.q_cruise * wing.area() * mc
-               + V3.M_MAST + V3.rig_mass * 9.81 * (-(X_cg - V3.x_mast)))
-    M_ref = V3.WEIGHT * mc
-    pen += V3.K1 * V3.soft_penalty(M_total, -0.05*M_ref, 0.05*M_ref, ref=M_ref)
+    M_total = (Cm * optFixedProfileV2.q_cruise * wing.area() * mc
+               + optFixedProfileV2.M_MAST + optFixedProfileV2.rig_mass * 9.81 * (-(X_cg - optFixedProfileV2.x_mast)))
+    M_ref = optFixedProfileV2.WEIGHT * mc
+    pen += optFixedProfileV2.K1 * optFixedProfileV2.soft_penalty(M_total, -0.05*M_ref, 0.05*M_ref, ref=M_ref)
 
-    pen += V3.K2 * V3.soft_penalty(p["alpha_cruise"], -1.0, np.inf, ref=2.0)
+    pen += optFixedProfileV2.K2 * optFixedProfileV2.soft_penalty(p["alpha_cruise"], -1.0, np.inf, ref=2.0)
 
     return D_total + 0.3 * D_to + pen
 
 
 def refine_trim_3d(x_start: np.ndarray, maxiter: int = 80) -> tuple:
     """Nelder-Mead sur les 6 angles de trim, planform fixée. ~1-3 min."""
-    x_start = np.clip(x_start.copy(), V3.LB, V3.UB)
+    x_start = np.clip(x_start.copy(), optFixedProfileV2.LB, optFixedProfileV2.UB)
     x_trim0 = x_start[TRIM_INDICES]
 
     print(f"\n  Refinement 3D (Nelder-Mead, {maxiter} iter max)...", flush=True)
@@ -113,7 +113,7 @@ def refine_trim_3d(x_start: np.ndarray, maxiter: int = 80) -> tuple:
         options={"maxiter": maxiter, "xatol": 1e-3, "fatol": 1e-2, "disp": False},
     )
     x_final = x_start.copy()
-    x_final[TRIM_INDICES] = np.clip(res.x, V3.LB[TRIM_INDICES], V3.UB[TRIM_INDICES])
+    x_final[TRIM_INDICES] = np.clip(res.x, optFixedProfileV2.LB[TRIM_INDICES], optFixedProfileV2.UB[TRIM_INDICES])
     return x_final, res.fun
 
 
@@ -126,11 +126,11 @@ def main() -> None:
         x = np.load(sys.argv[1])
         print(f"  Load X depuis : {sys.argv[1]}")
     else:
-        x = V3.X_REF.copy()
+        x = optFixedProfileV2.X_REF.copy()
         print(f"  Warm-start : X_REF (centre des bornes)")
 
     print(f"\n{'='*70}")
-    print(f"  REFINE_3D — scénario {V3.CASE.upper()}, profil {V3.WING_AIRFOIL_NAME}")
+    print(f"  REFINE_3D — scénario {optFixedProfileV2.CASE.upper()}, profil {optFixedProfileV2.WING_AIRFOIL_NAME}")
     print(f"{'='*70}")
 
     # 1) Comparaison initiale
@@ -140,7 +140,7 @@ def main() -> None:
     # 2) Refinement
     print("\n[2/3] Refinement 3D des angles de trim...")
     x_refined, J_refined = refine_trim_3d(x, maxiter=80)
-    p0, pr = V3.decode(x), V3.decode(x_refined)
+    p0, pr = optFixedProfileV2.decode(x), optFixedProfileV2.decode(x_refined)
     print(f"  Coût : {J_refined:.2f}  (planform inchangée)")
     print(f"  Évolutions :")
     for k in ("cg_ratio", "wing_setting_angle", "twist", "s_twist", "alpha_to", "alpha_cruise"):

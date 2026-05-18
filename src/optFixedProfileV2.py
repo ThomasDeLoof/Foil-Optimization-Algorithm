@@ -93,10 +93,11 @@ SIGMA_CAV     = (P_ATM + atmosphere.density() * 9.81 * profondeur_imm - P_VAPOR)
 WING_AIRFOIL_NAME = cfg["wing_airfoil"]
 STAB_AIRFOIL_NAME = phy["stab"]["airfoil"]
 
-# Warm-start de la planform aile (les vraies dimensions sont optimisées)
-WING_SPAN         = phy["wing"]["span_init"]
-WING_ROOT_CHORD   = phy["wing"]["root_chord_init"]
-WING_TIP_CHORD    = phy["wing"]["tip_chord_init"]
+# Warm-start de la planform aile : on prend la référence du scénario si fournie
+# (scenarios.yaml), sinon les valeurs par défaut de parameters.yaml.
+WING_SPAN         = cfg.get("wing_span_init",       phy["wing"]["span_init"])
+WING_ROOT_CHORD   = cfg.get("wing_root_chord_init", phy["wing"]["root_chord_init"])
+WING_TIP_CHORD    = cfg.get("wing_tip_chord_init",  phy["wing"]["tip_chord_init"])
 
 # Stab figé par scénario
 STAB_SPAN         = cfg["stab_span"]
