@@ -65,14 +65,16 @@ def compare_2d_3d(x: np.ndarray, label: str = "") -> dict:
     ll = aero_3d(airplane, p["alpha_cruise"])
 
     L_2D, D_2D = float(ab["L"]), float(ab["D"])
+    D_2D += V2.D_MAST
     L_3D, D_3D = ll["L"], ll["D"]
+    D_3D += V2.D_MAST
     weight = V2.WEIGHT
     print(f"\n  {label}" if label else "")
     print(f"  {'Métrique':<20} {'AeroBuildup (2D)':>18} {'LiftingLine (3D)':>18}")
     print(f"  {'-'*58}")
     print(f"  {'L (N)':<20} {L_2D:>18.1f} {L_3D:>18.1f}")
     print(f"  {'D_aéro (N)':<20} {D_2D:>18.2f} {D_3D:>18.2f}")
-    print(f"  {'L/D':<20} {L_2D/D_2D:>18.2f} {L_3D/D_3D:>18.2f}")
+    print(f"  {'L/D_total':<20} {L_2D/D_2D:>18.2f} {L_3D/D_3D:>18.2f}")
     return {"L": L_3D, "D": D_3D, "Cm": ll["Cm"], "CL": ll["CL"]}
 
 
@@ -193,13 +195,16 @@ def export_refined(x: np.ndarray) -> str:
     v_h     = (stab.area() * p["fuselage_length"]) / (wing.area() * mc)
     sigma_vm = V2.von_mises_root(p["wing_root_chord"], p["wing_span"])
 
-    # SM analytique (à comparer à VLM)
+    # Pitch dynamics (analytique) — toutes les métriques de pilotabilité
     try:
-        sm_approx = V2.neutral_point_ratio(wing, stab, mc, p["fuselage_length"]) - p["cg_ratio"]
+        pd = V2.pitch_dynamics(wing, stab, mc, p["fuselage_length"], p["cg_ratio"])
+        omega_n = V2.pitch_frequency_hz(pd["Cm_alpha"], V2.q_cruise, wing.area(), mc)
     except Exception:
-        sm_approx = float("nan")
+        pd = {"SM_chord": float("nan"), "SM_abs": float("nan"),
+              "SM_lt": float("nan"), "Cm_alpha": float("nan")}
+        omega_n = float("nan")
 
-    # SM réelle via VLM (downwash inclus)
+    # SM/c̄ via VLM (vérification — downwash inclus)
     try:
         plane_vlm = asb.Airplane(wings=airplane.wings, xyz_ref=airplane.xyz_ref,
                                  s_ref=airplane.s_ref, c_ref=airplane.c_ref, b_ref=airplane.b_ref)
@@ -248,7 +253,10 @@ def export_refined(x: np.ndarray) -> str:
     # --- Fiche markdown (orientée 3D / LiftingLine) ---
     now_disp = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     sm_real_str = f"{sm_vlm*100:.1f}%" if np.isfinite(sm_vlm) else "n/a"
-    sm_approx_str = f"{sm_approx*100:.1f}%" if np.isfinite(sm_approx) else "n/a"
+    sm_chord_str = f"{pd['SM_chord']*100:.1f}%" if np.isfinite(pd['SM_chord']) else "n/a"
+    omega_str = f"{omega_n:.2f} Hz" if np.isfinite(omega_n) else "UNSTABLE"
+    pilot_lvl = V2.PILOT_LEVEL
+    f_lo, f_hi = V2.get_pilot_freq_range()
     lines = [
         f"# Fiche Technique — {V2.CASE.upper()}  |  REFINEMENT 3D (LiftingLine)",
         "", f"*Générée le {now_disp}*",
@@ -285,10 +293,14 @@ def export_refined(x: np.ndarray) -> str:
         f"| **Finesse L/D** | **{L/D_total:.2f}** | — |",
         f"| Écart L vs poids | {(L-V2.WEIGHT)/V2.WEIGHT*100:+.1f}% | {(L_to-V2.WEIGHT)/V2.WEIGHT*100:+.1f}% |",
         "", "---", "",
-        "## 3. Stabilité & Structure", "",
+        "## 3. Pilotabilité, Stabilité & Structure", "",
         "| Paramètre | Valeur | Cible |", "|:---|:---|:---|",
-        f"| SM analytique (Abzug) | {sm_approx_str} | [{V2.cfg['sm_range'][0]*100:.0f}–{V2.cfg['sm_range'][1]*100:.0f}]% |",
-        f"| SM VLM (downwash) | {sm_real_str} | (vérification) |",
+        f"| **ω_n** (fréquence pitch) | **{omega_str}** | '{pilot_lvl}' [{f_lo:.1f}–{f_hi:.1f}] Hz |",
+        f"| Cm_α (raideur tangage) | {pd['Cm_alpha']:.2f} rad⁻¹ | < 0 = stable |",
+        f"| SM/l_t (scale-invariant) | {pd['SM_lt']*100:.1f}% | typique aviation 10-25% |",
+        f"| Gap NP-CG (absolu) | {pd['SM_abs']*1000:.1f} mm | — |",
+        f"| SM/c̄ (legacy, analytique) | {sm_chord_str} | — (chord-normalisé) |",
+        f"| SM/c̄ via VLM (verif) | {sm_real_str} | écart ≤ 10 pts attendu |",
         f"| Moment résiduel | {M_total:.3f} N·m | < {0.05*V2.WEIGHT*mc:.2f} N·m |",
         f"| Volume de queue V_h | {v_h:.3f} | [{V2.cfg['vh_range'][0]:.2f}–{V2.cfg['vh_range'][1]:.2f}] |",
         f"| Von Mises root | {sigma_vm/1e6:.1f} MPa | < {V2.SIGMA_CARBONE/1e6:.0f} MPa |",

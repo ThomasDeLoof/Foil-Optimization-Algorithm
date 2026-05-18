@@ -4,7 +4,7 @@
 
 ## What this does
 
-The project looks for the geometry of a complete foil — main wing, fuselage, mast, stabilizer — that minimizes cruise drag for a given pilot weight and speed, under a stack of constraints: lift equals weight at cruise and takeoff, pitching moment balanced, structural stress below carbon limits, no cavitation, static margin in a sensible range. Hydrodynamics are handled by AeroSandBox with seawater as the working fluid. Everything lives in `src/`.
+The project looks for the geometry of a complete foil — main wing, fuselage, mast, stabilizer — that minimizes cruise drag for a given pilot weight and speed, under a stack of constraints: lift equals weight at cruise and takeoff, pitching moment balanced, structural stress below carbon limits, no cavitation, pilotability (pitch natural frequency `ω_n`) in a target range for the discipline. Hydrodynamics are handled by AeroSandBox with seawater as the working fluid. Everything lives in `src/`.
 
 Three approaches have been tried in sequence. The current one is **V3**.
 
@@ -57,13 +57,28 @@ The DE evaluation uses AeroBuildup — fast (≈ 0.5 s per call), good enough to
 
 The objective is multi-point: `D_cruise + 0.3 · D_takeoff`. The takeoff weight (0.3) discourages designs that need huge induced drag to lift off, without overpowering the cruise term.
 
-### Static margin
+### Stability and pilotability
 
-This is the part that took the longest to figure out. The classical aircraft static margin doesn't really apply to a wingfoil. The dominant mass of the system — pilot + board + rig, roughly 84 kg out of 85 — sits on the board above the mast, which is well behind the wing in chord units. Compute SM about that *physical* CG and you get something around −80 %: the foil is statically unstable in the classical sense, exactly like a modern fighter, and the pilot stabilises it dynamically with their stance.
+This is the part that took the longest to figure out. The classical aircraft static margin (SM normalised by mean chord) doesn't really work for a wingfoil. Two reasons.
 
-The SM that's actually optimized in V3 is a proxy. It assumes the CG sits at some fraction of the wing's mean chord (controlled by `cg_ratio`) and captures the geometric relationship between the wing AC, the stab contribution and that assumed CG position. The range we constrain it to in `scenarios.yaml` (40-75 % for wingfoil, 50-80 % for windsurf, etc.) reflects what's achievable under that proxy. Calling it 60 % doesn't mean the real-life foil is 60 % stable — it means the proxy puts it there.
+First, the dominant mass of the system — pilot + board + rig, roughly 84 kg out of 85 — sits on the board above the mast, which is well behind the wing in chord units. Compute SM about that *physical* CG and you get something around −80 %: the foil is statically unstable in the classical sense, exactly like a modern fighter, and the pilot stabilises it dynamically with their stance. The "SM" we can actually measure aerodynamically assumes the CG sits at some fraction of the wing chord; it's a geometric proxy, not a pilot-felt stability.
 
-The downwash factor `de_da` used in the analytical formula is calibrated empirically against VLM by `calibrate_de_da.py`. The textbook `4 / (AR + 2) ≈ 0.5` value is borrowed from aircraft and is off by a factor of five for a hydrofoil, because `l_t / c̄ ≈ 5` means the downwash has mostly dissipated by the time it reaches the stab. The calibrated linear fit `de_da(fl) ≈ 0.54·fl − 0.43` brings the analytical SM to within 2 percentage points of the VLM measurement across the whole fuselage-length range. Re-run the calibration script if you change the wing or stab dimensions.
+Second, even taking the proxy at face value, SM/c̄ is *not scale-invariant*. When the optimizer freely picks the planform, it tends to shrink the wing, which shrinks `c̄`, which mechanically inflates SM/c̄ even though the physical distance NP − CG hasn't changed. We saw runs with SM/c̄ around 85-105 % that were perfectly fine physically — the gap NP − CG was about 80 mm with a tail arm of 540 mm, which is 15 % of the tail arm. That's standard aviation-stable territory; the 100 % figure was just the chord normalisation talking.
+
+V3 therefore drops SM/c̄ as the constraint and replaces it with a **pilotability** target expressed as a pitch natural frequency `ω_n` (Hz). The idea is that what the pilot actually feels isn't a static margin in chord units, it's the speed at which the foil responds to a pitch perturbation — the short-period mode. We compute it analytically from `Cm_α = -SM · CL_α_total`, the dynamic pressure, the wing reference area and chord, and an inertia estimate `I_yy = m_total · r_gyr²` (gyration radius ≈ 30 cm for a rider standing on the board, set in `parameters.yaml`). This costs nothing — it's algebra on values we already have, no extra solver calls.
+
+Three pilotability levels — **débutant**, **intermédiaire**, **avancé** — and each *scenario* has its own ω_n range per level, because "avancé" on a 13 m/s windsurf race foil isn't the same physical feeling as "avancé" on a 6 m/s pumping wing. The active level is picked once globally in `parameters.yaml` (`pilotability: "intermédiaire"`), and each scenario's `pilotability_freq` table maps it to a target range in Hz:
+
+| Scenario | débutant | intermédiaire | avancé |
+|---|---|---|---|
+| wingfoil | 1.5–2.2 Hz | 2.2–3.0 Hz | 3.0–4.0 Hz |
+| windsurf | 2.0–2.8 Hz | 2.8–3.8 Hz | 3.8–5.5 Hz |
+| downwind | 1.3–1.8 Hz | 1.8–2.5 Hz | 2.5–3.5 Hz |
+| pumping | 0.8–1.3 Hz | 1.3–1.9 Hz | 1.9–2.8 Hz |
+
+Notice how the same "intermédiaire" label maps to 2.2 Hz for wingfoil but 2.8 Hz for windsurf — windsurf at high speed needs a foil that responds faster than the same skill class would on a wingfoil. Pumping sits very low across the board because the cycle works against pitch oscillation. The optimizer's soft penalty pushes `ω_n` into the active range. The downwash factor `de_da` used inside the analytical Cm_α is still calibrated empirically against VLM by `calibrate_de_da.py` — the classic textbook `4/(AR+2) ≈ 0.5` is off by a factor of five for hydrofoils because the tail arm is so long that the downwash has mostly dissipated by the time it reaches the stab.
+
+What's displayed in the technical sheet (and in the console at end of run): `ω_n` in Hz with its target range, `Cm_α` in rad⁻¹, `SM/l_t` (scale-invariant), the absolute NP − CG gap in mm, and the legacy SM/c̄ for backwards comparison.
 
 ### Structure
 

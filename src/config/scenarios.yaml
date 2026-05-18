@@ -22,9 +22,12 @@ wingfoil:
     - 0.013             
     - 0.026          
 
-  sm_range:                 # NB : SM aircraft-style avec CG modélisé dans la corde
-    - 0.40                  # de l'aile. Réelle SM physique (pilote au-dessus du mât)
-    - 0.85                  # est très différente — voir notes dans optFixedProfileV2.py
+  # Pilotabilité — ω_n cible par niveau (Hz). Le niveau actif est choisi dans
+  # parameters.yaml. Wingfoil freeride = mode polyvalent, plage modérée.
+  pilotability_freq:
+    débutant:      [1.5, 2.2]    # Hz — très stable, parfait apprentissage
+    intermédiaire: [2.2, 3.0]    # Hz — équilibré freeride (défaut)
+    avancé:        [3.0, 4.0]    # Hz — réactif, demande de l'expérience
 
   stab_load_range:          # Force stab (N, négatif = déportance)
     - -45.0
@@ -68,9 +71,11 @@ windsurf:
     - 0.018                 
     - 0.032                 
 
-  sm_range:                 # SM aircraft-style avec CG dans la corde (cf. wingfoil)
-    - 0.50                  # gamme cohérente avec cg_range et X_np typique ~96%
-    - 0.80
+  # Windsurf : haute vitesse (13 m/s) → foil plus réactif que wingfoil à niveau égal
+  pilotability_freq:
+    débutant:      [2.0, 2.8]    # Hz — déjà rapide vs un wingfoil débutant
+    intermédiaire: [2.8, 3.8]    # Hz — race-freeride freerace
+    avancé:        [3.8, 5.5]    # Hz — slalom / race competition
 
   stab_load_range:          # Déportance plus forte pour contrer le moment du gréement
     - -40.0
@@ -115,9 +120,12 @@ downwind:
     - 0.014                 
     - 0.024                 
 
-  sm_range:                 # Foil downwind = high AR, CG très avancé → SM élevé
-    - 0.65                  # gamme cohérente avec cg_range [0.18, 0.30]
-    - 0.85
+  # Downwind = glisse longue sur houle, on privilégie la stabilité/prédictibilité.
+  # Plages plus basses qu'en wingfoil à niveau égal (foil "doux à pomper").
+  pilotability_freq:
+    débutant:      [1.3, 1.8]    # Hz — très forgiving, plateforme apprentissage
+    intermédiaire: [1.8, 2.5]    # Hz — glisse confortable
+    avancé:        [2.5, 3.5]    # Hz — réactif pour pumping rapide sur swell
 
   stab_load_range:          # Quasi neutre — pas de déportance qui freine la glisse
     - -15.0
@@ -162,9 +170,13 @@ pumping:
     - 0.016                 
     - 0.028                
 
-  sm_range:                 # Pumping = grosse aile, CG avancé, SM moyennement haut
-    - 0.60                  # gamme cohérente avec cg_range [0.20, 0.32]
-    - 0.80
+  # Pumping = cycles d'effort à très basse vitesse. ω_n nettement plus basse
+  # que toutes les autres disciplines : le foil doit "porter le pilote",
+  # pas lui demander des micro-corrections rapides.
+  pilotability_freq:
+    débutant:      [0.8, 1.3]    # Hz — extremely forgiving, débutants
+    intermédiaire: [1.3, 1.9]    # Hz — pumping régulier confortable
+    avancé:        [1.9, 2.8]    # Hz — pumping rapide, dynamique
 
   stab_load_range:          # Quasi nul — le stab ne doit pas freiner le mouvement
     - -10.0

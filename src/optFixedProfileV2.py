@@ -388,8 +388,87 @@ def neutral_point_ratio(wing: asb.Wing, stab: asb.Wing,
     return (X_ac_w / mean_chord) + V_H * (CL_a_s / CL_a_w) * (1.0 - de_da)
 
 
+# ── Pitch dynamics — métriques de stabilité physiquement parlantes ───────────
+#   - SM_lt = (X_np - X_cg) / l_t   → adimensionnel, scale-invariant
+#   - Cm_α                          → vraie raideur de tangage (rad⁻¹)
+#   - ω_n                           → fréquence du mode short-period (Hz)
+# C'est ω_n qui détermine la pilotabilité ressentie.
+
+# Inertie de tangage du système pilote + board + rig
+_M_TOTAL    = phy["pilot"]["mass_kg"] + phy["board"]["mass_kg"] + rig_mass
+_R_GYR      = phy["pilot"].get("gyration_radius_m", 0.30)
+I_YY_SYSTEM = _M_TOTAL * _R_GYR ** 2
+
+# Niveau de pilotabilité actif (choisi dans parameters.yaml). Chaque scénario
+# définit ses propres plages ω_n par niveau dans scenarios.yaml#pilotability_freq.
+PILOT_LEVEL = phy["pilotability"]
+
+
+def get_pilot_freq_range() -> tuple:
+    """Retourne (f_lo, f_hi) du niveau actif, pour le scénario courant."""
+    try:
+        return tuple(cfg["pilotability_freq"][PILOT_LEVEL])
+    except KeyError:
+        raise ValueError(
+            f"Niveau pilotabilité '{PILOT_LEVEL}' non défini pour le scénario "
+            f"'{CASE}'. Niveaux disponibles : {list(cfg.get('pilotability_freq', {}).keys())}"
+        )
+
+
+def pitch_dynamics(wing: asb.Wing, stab: asb.Wing, mean_chord: float,
+                   fuselage_length: float, cg_ratio: float) -> dict:
+    """
+    Métriques analytiques de stabilité en tangage (gratuit, pas de VLM).
+
+    Renvoie :
+      SM_chord  — SM / c̄              (legacy aircraft-style)
+      SM_abs    — X_np - X_cg en m    (distance physique)
+      SM_lt     — SM_abs / l_t        (adimensionnel, scale-invariant — PRÉFÉRÉ)
+      Cm_alpha  — dCm/dα (rad⁻¹)      (raideur de tangage)
+      l_t, V_H  — bras de levier et volume de queue
+    """
+    AR_w = float(wing.aspect_ratio())
+    AR_s = float(stab.aspect_ratio())
+    CL_a_w = _cl_alpha_helmbold(AR_w)
+    CL_a_s = _cl_alpha_helmbold(AR_s)
+    de_da = DE_DA_SLOPE * fuselage_length + DE_DA_INTERCEPT
+
+    X_ac_w      = 0.25 * mean_chord
+    c_stab_mean = 0.5 * (STAB_ROOT_CHORD + STAB_TIP_CHORD)
+    x_stab_root = x_fuselage_start + fuselage_length - STAB_FUSE_OFFSET
+    X_ac_s      = x_stab_root + 0.25 * c_stab_mean
+    l_t = X_ac_s - X_ac_w
+    V_H = (stab.area() * l_t) / (wing.area() * mean_chord + 1e-12)
+
+    X_np_ratio = (X_ac_w / mean_chord) + V_H * (CL_a_s / CL_a_w) * (1.0 - de_da)
+    SM_chord   = X_np_ratio - cg_ratio
+    SM_abs     = SM_chord * mean_chord
+    SM_lt      = SM_abs / max(l_t, 1e-9)
+
+    # Cm_α total (à CG) — raideur de tangage en rad⁻¹
+    S_ratio  = stab.area() / wing.area()
+    CL_alpha = CL_a_w + CL_a_s * S_ratio * (1.0 - de_da)
+    Cm_alpha = -SM_chord * CL_alpha
+
+    return {"SM_chord": SM_chord, "SM_abs": SM_abs, "SM_lt": SM_lt,
+            "Cm_alpha": Cm_alpha, "l_t": l_t, "V_H": V_H,
+            "CL_alpha_total": CL_alpha}
+
+
+def pitch_frequency_hz(Cm_alpha: float, q: float, S: float, c_ref: float) -> float:
+    """
+    Fréquence naturelle du mode short-period (Hz).
+        ω_n² = -Cm_α × q × S × c̄ / I_yy        [I_yy ≈ m_total × r_gyr²]
+    Renvoie NaN si Cm_α > 0 (foil instable, ω_n imaginaire).
+    """
+    omega_n_sq = -Cm_alpha * q * S * c_ref / max(I_YY_SYSTEM, 1e-9)
+    if omega_n_sq <= 0:
+        return float("nan")
+    return float(np.sqrt(omega_n_sq) / (2.0 * np.pi))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
-# 7. FONCTION OBJECTIF 
+# 7. FONCTION OBJECTIF
 # ─────────────────────────────────────────────────────────────────────────────
 
 K1 = 2000.0   # contraintes critiques (portance, équilibre, structure)
@@ -459,10 +538,7 @@ def objective(x: np.ndarray) -> float:
     penalty += K1 * soft_penalty(CL_to, -np.inf, CL_MAX_TO, ref=CL_MAX_TO)
 
     # Régime d'opération sain : α_cruise ≥ -1° sur profil cambré
-    # (en α<-1° on tombe en zone non-linéaire négative pour NACA modérément cambré,
-    #  Cm(α) devient erratique. Mais α ∈ [-1, 0]° reste en régime linéaire correct.
-    #  Tolérance plus large que 0° car certains scénarios (wingfoil/windsurf) opèrent
-    #  intrinsèquement à CL très faible vu leurs combinaisons foil+vitesse.)
+    # (en α<-1° on tombe en zone non-linéaire négative pour NACA modérément cambré, Cm(α) devient erratique
     penalty += K2 * soft_penalty(p["alpha_cruise"], -1.0, np.inf, ref=2.0)
 
     # Équilibre de tangage en croisière (tolérance ±5 % de M_ref)
@@ -474,14 +550,17 @@ def objective(x: np.ndarray) -> float:
     tol_M   = 0.05 * M_ref
     penalty += K1 * soft_penalty(M_total, -tol_M, +tol_M, ref=M_ref)
 
-    # Marge statique analytique (Abzug + Helmbold)
+    # Pilotabilité : contrainte sur la fréquence naturelle de tangage 
     try:
-        X_np_ratio = neutral_point_ratio(wing, stab, mean_chord, p["fuselage_length"])
-        SM         = X_np_ratio - p["cg_ratio"]
-        sm_lo, sm_hi = cfg["sm_range"]
-        penalty += K2 * soft_penalty(SM, sm_lo, sm_hi, ref=sm_lo)
+        pd = pitch_dynamics(wing, stab, mean_chord, p["fuselage_length"], p["cg_ratio"])
+        omega_n = pitch_frequency_hz(pd["Cm_alpha"], q_cruise, S_wing, mean_chord)
+        f_lo, f_hi = get_pilot_freq_range()
+        if np.isfinite(omega_n):
+            penalty += K2 * soft_penalty(omega_n, f_lo, f_hi, ref=0.5*(f_lo+f_hi))
+        else:
+            penalty += K2 * 4.0  # foil instable → forte pénalité
     except Exception:
-        penalty += K2  
+        penalty += K2
 
     # ── Pénalités auxiliaires ────────────────────────────────
 
@@ -503,7 +582,6 @@ def objective(x: np.ndarray) -> float:
     penalty += K3 * soft_penalty(S_wing, sw_lo, sw_hi, ref=0.5*(sw_lo+sw_hi))
 
     # Objectif multi-point : D_cruise + W_TO × D_takeoff
-    # (le décollage compte mais moins que la croisière, qui dure plus longtemps)
     W_TAKEOFF = 0.3
     return D_total + W_TAKEOFF * D_to + penalty
 
@@ -673,15 +751,13 @@ def full_report(x: np.ndarray) -> None:
     aero_to = asb.AeroBuildup(airplane, op_to).run()
     L_to, D_to, CL_to = float(aero_to["L"]), float(aero_to["D"]), float(aero_to["CL"])
 
-    # Stabilité — comparaison approx. analytique (utilisée en opti) vs réelle (AeroBuildup)
-    X_np_ratio = neutral_point_ratio(wing, stab, mean_chord, p["fuselage_length"])
-    SM_approx  = X_np_ratio - p["cg_ratio"]
+    # Pitch dynamics (analytique, gratuit) — SM/l_t, Cm_α, ω_n
+    pd = pitch_dynamics(wing, stab, mean_chord, p["fuselage_length"], p["cg_ratio"])
+    omega_n = pitch_frequency_hz(pd["Cm_alpha"], q_cruise, wing.area(), mean_chord)
+    SM_approx = pd["SM_chord"]  # legacy variable name pour compat downstream
 
     # SM réelle : SM = -dCm/dCL au point LINÉAIRE (α=3°, δα=0.25°).
-    # IMPORTANT : on utilise VortexLatticeMethod (capture le downwash aile→stab),
-    # pas AeroBuildup (modèle additif qui ignore les interactions ; vérifié :
-    # AeroBuildup surestime la SM d'un facteur ~3 par rapport à VLM).
-    # VLM ne gère pas les fuselages → on construit un avion réduit aux ailes.
+    # on utilise VortexLatticeMethod (capture le downwash aile→stab)
     try:
         plane_vlm = asb.Airplane(
             wings=airplane.wings, xyz_ref=airplane.xyz_ref,
@@ -737,9 +813,16 @@ def full_report(x: np.ndarray) -> None:
     print(f"  {'─'*55}")
     print(f"  Surface aile     : {wing.area()*1e4:5.0f} cm²   AR : {AR_w:.2f}")
     print(f"  Surface stab     : {stab.area()*1e4:5.0f} cm²   AR : {AR_s:.2f}")
+    # Pilotabilité : ω_n (Hz) — vraie raideur ressentie par le pilote
+    f_lo, f_hi = get_pilot_freq_range()
+    pilot_lvl = PILOT_LEVEL
+    omega_str = f"{omega_n:5.2f} Hz" if np.isfinite(omega_n) else " UNSTABLE"
+    print(f"  Pilotabilité     : ω_n = {omega_str}   "
+          f"(niveau '{pilot_lvl}' / {CASE} → [{f_lo:.1f}–{f_hi:.1f}] Hz)")
+    # SM : on affiche maintenant SM/l_t (scale-invariant) en métrique principale
     sm_real_str = f"{SM_real*100:5.1f} %" if np.isfinite(SM_real) else "   n/a"
-    print(f"  Marge statique   : approx (opti) {SM_approx*100:5.1f} %   |   réelle (VLM) {sm_real_str}"
-          f"    (cible [{cfg['sm_range'][0]*100:.0f}–{cfg['sm_range'][1]*100:.0f}]%)")
+    print(f"  Stabilité tangage: SM_lt = {pd['SM_lt']*100:5.1f} %  (gap NP-CG = {pd['SM_abs']*1000:5.1f} mm)")
+    print(f"                     Cm_α  = {pd['Cm_alpha']:6.2f} rad⁻¹    SM/c̄ (legacy) {SM_approx*100:5.1f} %   |   VLM {sm_real_str}")
     print(f"  Volume de queue  : {v_h:5.3f}        (cible [{cfg['vh_range'][0]:.2f}–{cfg['vh_range'][1]:.2f}])")
     print(f"  L décollage      : {L_to:6.1f} / {WEIGHT:.1f} N   CL_to : {CL_to:.3f} / {CL_MAX_TO}")
     print(f"  Moment résiduel  : {M_total:.3f} N·m   Force stab : {F_stab:.1f} N")
@@ -748,14 +831,14 @@ def full_report(x: np.ndarray) -> None:
 
     # ── Récap des contraintes ───────────────────────────────────────────────
     Cp_min   = -(1.2 * abs(CL) + 3.0 * WING_THICKNESS_REL)
-    sm_lo, sm_hi = cfg["sm_range"]
     M_tol    = 0.05 * WEIGHT * mean_chord
+    omega_ok = np.isfinite(omega_n) and (f_lo <= omega_n <= f_hi)
     checks = [
         ("L_cruise ≥ poids",        L     >= 0.99 * WEIGHT),
         ("L_takeoff ≥ poids",       L_to  >= 0.99 * WEIGHT),
         ("CL_takeoff ≤ CL_max",     CL_to <= CL_MAX_TO + 1e-3),
         ("|M_total| ≤ 5% M_ref",    abs(M_total) <= M_tol),
-        ("SM (opti) dans cible",    sm_lo <= SM_approx <= sm_hi),
+        (f"ω_n dans '{pilot_lvl}' [{f_lo:.1f}-{f_hi:.1f}] Hz", omega_ok),
         ("Cavitation OK",           Cp_min >= -SIGMA_CAV),
         ("σ_VM ≤ σ_carbone",        sigma_vm <= SIGMA_CARBONE),
         ("V_h dans cible",          cfg["vh_range"][0] <= v_h <= cfg["vh_range"][1]),
@@ -776,7 +859,7 @@ def full_report(x: np.ndarray) -> None:
 
     _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
                SM_approx, SM_real, F_stab, v_h, M_total, L_to, CL_to, rho, mu, X_cg, AR_w, AR_s,
-               sigma_vm)
+               sigma_vm, pd, omega_n, pilot_lvl, f_lo, f_hi)
 
     # ── Export XFLR5 + profils .dat — méthode V1 (la seule qui marche en pratique).
     # On RENOMME chaque section avec un nom unique (wing_sec_0, ...) et on écrit
@@ -860,7 +943,7 @@ def full_report(x: np.ndarray) -> None:
 
 def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
                SM_approx, SM_real, F_stab, v_h, M_total, L_to, CL_to, rho, mu, X_cg, AR_w, AR_s,
-               sigma_vm):
+               sigma_vm, pd, omega_n, pilot_lvl, f_lo, f_hi):
     now_str = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     Re_root = rho * cfg["v_cruise"] * p["wing_root_chord"] / mu
     Re_tip  = rho * cfg["v_cruise"] * p["wing_tip_chord"]  / mu
@@ -911,10 +994,15 @@ def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
         f"| Allongement | {AR_w:.2f} | {AR_s:.2f} |",
         f"| Corde moyenne (mm) | {mean_chord*1000:.0f} | {(STAB_ROOT_CHORD+STAB_TIP_CHORD)*500:.0f} |",
         "", "---", "",
-        "## 5. Stabilité & Structure", "",
+        "## 5. Pilotabilité, Stabilité & Structure", "",
         "| Paramètre | Valeur | Cible |", "|:---|:---|:---|",
-        f"| SM — approx (opti, Abzug) | {SM_approx*100:.1f}% | [{cfg['sm_range'][0]*100:.0f}–{cfg['sm_range'][1]*100:.0f}]% |",
-        f"| SM — réelle (VLM, -dCm/dCL avec downwash) | {(f'{SM_real*100:.1f}%') if np.isfinite(SM_real) else 'n/a'} | (vérification) |",
+        f"| **ω_n** (fréquence pitch, Hz) | {omega_n:.2f} Hz" if np.isfinite(omega_n) else "| **ω_n** | UNSTABLE",
+        f"|         | | '{pilot_lvl}' [{f_lo:.1f}–{f_hi:.1f}] Hz |",
+        f"| Cm_α (raideur tangage, rad⁻¹) | {pd['Cm_alpha']:.2f} | (info, <0 = stable) |",
+        f"| SM/l_t (scale-invariant) | {pd['SM_lt']*100:.1f}% | typique aviation 10-25% |",
+        f"| Gap NP-CG (absolu) | {pd['SM_abs']*1000:.1f} mm | — |",
+        f"| SM/c̄ (legacy, aircraft-style) | {SM_approx*100:.1f}% | — (chord-normalisé) |",
+        f"| SM/c̄ via VLM (verif) | {(f'{SM_real*100:.1f}%') if np.isfinite(SM_real) else 'n/a'} | écart ≤ 5 pts attendu |",
         f"| CG | {p['cg_ratio']*100:.1f}% c̄ ({X_cg*100:.1f} cm) | [{cfg['cg_range'][0]*100:.0f}–{cfg['cg_range'][1]*100:.0f}]% |",
         f"| Moment résiduel | {M_total:.3f} N·m | < {0.05*WEIGHT*mean_chord:.2f} N·m |",
         f"| Force stab (info) | {F_stab:.1f} N | — |",
@@ -925,10 +1013,12 @@ def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
     ]
 
     warn = []
-    if not (cfg["sm_range"][0] <= SM_approx <= cfg["sm_range"][1]):
-        warn.append(f"⚠️ SM approx {SM_approx*100:.1f}% hors contrainte [{cfg['sm_range'][0]*100:.0f}–{cfg['sm_range'][1]*100:.0f}]%")
-    if np.isfinite(SM_real) and abs(SM_real - SM_approx) > 0.05:
-        warn.append(f"⚠️ Écart SM approx/réelle > 5 points ({SM_approx*100:.1f}% vs {SM_real*100:.1f}%) — approximation Abzug à revisiter")
+    if not np.isfinite(omega_n):
+        warn.append(f"⚠️ Foil INSTABLE (Cm_α > 0) — pilote ne peut pas le maintenir au trim")
+    elif not (f_lo <= omega_n <= f_hi):
+        warn.append(f"⚠️ ω_n {omega_n:.2f} Hz hors cible '{pilot_lvl}' [{f_lo:.1f}–{f_hi:.1f}] Hz")
+    if np.isfinite(SM_real) and abs(SM_real - SM_approx) > 0.10:
+        warn.append(f"⚠️ Écart SM analytique/VLM > 10 points ({SM_approx*100:.1f}% vs {SM_real*100:.1f}%) — recalibrer de_da")
     if L_to < WEIGHT * 0.98:
         warn.append(f"⚠️ Portance décollage insuffisante : {L_to:.1f} / {WEIGHT:.1f} N")
     if CL_to > CL_MAX_TO:
