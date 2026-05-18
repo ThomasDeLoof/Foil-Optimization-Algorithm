@@ -57,6 +57,8 @@ wing:
   twist_bounds: [-5.0, 1.0]
   twist_init: -1.5
 
+  calage_bounds: [-3.0, 5.0]        # Élargi : opti tendait vers la borne basse -2°
+
   # Géométrie fixe
   sweep_deg: 15.0                   # Flèche modérée — anti-algues
   anhedral_deg: 4.0                 # Stabilité en roulis sans trop pénaliser la portance
@@ -73,7 +75,7 @@ wing:
 # FUSELAGE
 # -----------------------------------------------------------------------------
 fuselage:
-  length_bounds: [0.60, 0.95]       # 60 cm (court/pumping) à 95 cm (long/windsurf)
+  length_bounds: [0.55, 0.95]       # 55 cm (court/pumping) à 95 cm (long/windsurf)
   length_init: 0.75
   diameter: 0.035                   # 35 mm diamètre standard tube carbone
   x_start: 0.10                     # Nez fuselage à 10 cm derrière le BA aile

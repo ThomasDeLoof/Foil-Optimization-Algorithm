@@ -778,6 +778,48 @@ def full_report(x: np.ndarray) -> None:
                SM_approx, SM_real, F_stab, v_h, M_total, L_to, CL_to, rho, mu, X_cg, AR_w, AR_s,
                sigma_vm)
 
+    # ── Export XFLR5 + profils .dat — méthode V1 (la seule qui marche en pratique).
+    # On RENOMME chaque section avec un nom unique (wing_sec_0, ...) et on écrit
+    # le .dat correspondant dans airfoils/. Au load du XML, XFLR5 retrouve
+    # chaque section par son nom dans le sous-dossier.
+    airfoils_dir = os.path.join(out_dir, "airfoils")
+    os.makedirs(airfoils_dir, exist_ok=True)
+
+    def _export_profile_dat(af_obj, filename, name_internal):
+        """Format Selig normalisé, repané à 50 pts/side (cf. V1)."""
+        af_obj = af_obj.repanel(n_points_per_side=50)
+        coords = af_obj.coordinates.copy()
+        x_min, x_max = coords[:, 0].min(), coords[:, 0].max()
+        coords[:, 0] = (coords[:, 0] - x_min) / (x_max - x_min)
+        coords[:, 1] = coords[:, 1] / (x_max - x_min)
+        idx_le = int(np.argmin(coords[:, 0]))
+        upper, lower = coords[:idx_le + 1], coords[idx_le:]
+        if upper[0, 0] < upper[-1, 0]: upper = upper[::-1]
+        if lower[0, 0] > lower[-1, 0]: lower = lower[::-1]
+        final = np.concatenate([upper, lower[1:]])
+        with open(os.path.join(airfoils_dir, filename), "w") as f:
+            f.write(f"{name_internal}\n")
+            for x, y in final:
+                f.write(f" {x:.6f} {y:.6f}\n")
+
+    # IMPORTANT : toutes les xsecs d'une aile partagent le même objet Airfoil
+    # en mémoire (WING_AIRFOIL est créé une fois et passé par référence). Si on
+    # renomme `xs.airfoil.name`, on écrase aussi les sections précédentes.
+    # → on COPIE l'airfoil par section avant de renommer.
+    import copy
+    def _rename_and_export(xsecs, prefix):
+        for i, xs in enumerate(xsecs):
+            n = f"{prefix}_sec_{i}"
+            af_copy = copy.deepcopy(xs.airfoil)
+            af_copy.name = n
+            xs.airfoil = af_copy
+            _export_profile_dat(af_copy, f"{n}.dat", n)
+
+    _rename_and_export(airplane.wings[0].xsecs, "wing")
+    _rename_and_export(airplane.wings[1].xsecs, "stab")
+    _rename_and_export(mast_obj.xsecs,          "mast")
+
+    # XML XFLR5 — les noms d'airfoils des xsecs viennent d'être renommés
     xml_path = os.path.join(out_dir, f"{CASE}_v3param_{now_str}_plane.xml")
     try:
         asb.Airplane(
@@ -792,23 +834,28 @@ def full_report(x: np.ndarray) -> None:
         print(f"  ✓ XML XFLR5       : {xml_path}")
     except Exception as e:
         print(f"  ~ XML XFLR5 non exporté : {e}")
-
-    # Écriture des .dat des profils (Selig) — XFLR5 retrouve automatiquement
-    # l'airfoil par son nom si le .dat est dans le même dossier que le XML.
-    unique_airfoils = {WING_AIRFOIL_NAME: WING_AIRFOIL,
-                       STAB_AIRFOIL_NAME: STAB_AIRFOIL,
-                       mast_profile:      asb.Airfoil(mast_profile)}
-    exported = []
-    for name, af in unique_airfoils.items():
-        try:
-            af.write_dat(os.path.join(out_dir, f"{name}.dat"))
-            exported.append(f"{name}.dat")
-        except Exception as e:
-            print(f"  ~ Profil {name} non exporté : {e}")
-    if exported:
-        print(f"  ✓ Profils .dat    : {', '.join(exported)}")
-
+    print(f"  ✓ Profils .dat    : {airfoils_dir}/")
     print(f"  ✓ Fiche technique : {out_dir}/fiche_technique.md")
+
+    # Sauvegarde du X optimal pour refine_3d.py (load auto)
+    np.save(os.path.join(out_dir, "x_best.npy"), x)
+    print(f"  ✓ X optimal       : {out_dir}/x_best.npy")
+
+    # ── Rapport des bornes saturées ─────────────────────────────────────────
+    VAR_NAMES = ["fuselage_length", "cg_ratio", "wing_setting_angle", "twist",
+                 "s_twist", "alpha_to", "alpha_cruise",
+                 "wing_span", "wing_root_chord", "wing_tip_chord"]
+    TOL = 0.02  # 2% de la largeur de bornes
+    saturated = []
+    for i, (lo, hi) in enumerate(BOUNDS):
+        width = hi - lo
+        if x[i] - lo < TOL * width:
+            saturated.append(f"{VAR_NAMES[i]} ↓ {lo:.3g}")
+        elif hi - x[i] < TOL * width:
+            saturated.append(f"{VAR_NAMES[i]} ↑ {hi:.3g}")
+    if saturated:
+        print(f"\n  ⚠ Bornes saturées ({len(saturated)}) : {', '.join(saturated)}")
+        print(f"    → Considérer relâcher ces bornes pour explorer plus loin.\n")
 
 
 def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
@@ -823,7 +870,7 @@ def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
     lines = [
         f"# Fiche Technique — {CASE.upper()}  |  V3 Paramétrique Macroscopique",
         "", f"*Générée le {now_str}*", "", "---", "",
-        "## 0. Foils de référence (figés)", "",
+        "## 0. Configuration — profils & stab figés", "",
         "| Élément | Profil | Span | Corde R/T |",
         "|:---|:---|:---|:---|",
         f"| Aile  | {WING_AIRFOIL_NAME} | {p['wing_span']*100:.0f} cm | {p['wing_root_chord']*1000:.0f} / {p['wing_tip_chord']*1000:.0f} mm |",
