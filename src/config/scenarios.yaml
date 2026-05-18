@@ -31,10 +31,10 @@ wingfoil:
     - -5.0                
 
   cg_range:                 # Position CG / corde moyenne
-    - 0.28                  # avant : pilotage précis
-    - 0.60                  # arrière : confort et stabilité
+    - 0.30                  # avant : pilotage précis
+    - 0.45                  # arrière : limite raisonnable (au-delà, F_stab explose)
 
-  cg_ratio_init: 0.40       
+  cg_ratio_init: 0.38
 
   vh_range:                
     - 0.30                 

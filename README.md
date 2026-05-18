@@ -84,7 +84,7 @@ I quickly realized that it would be too complex to consider certain physical asp
 * neglected elasticity (mast flexion and wing twisting), as well as the interference drag caused by the interaction of different foil parts
 * steady-state regime (which does not account for unsteady cases like pumping).
 
-I am well aware that this assumptions can make my code completly non realistic for certain cases.
+This assumptions could make my code completly non realistic for certain cases.
 
 ## Final Thoughts
 I am well aware that this code is not guaranteed to output a ready-to-build hydrofoil. However, building this from scratch was an attempt to tackle a massive engineering problem, one that entire companies spend years working on, and it forced me to dive deep into hydrodynamics and parametric optimization, I have learned an lot in the process.

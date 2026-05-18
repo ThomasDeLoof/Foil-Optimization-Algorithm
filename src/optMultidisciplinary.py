@@ -175,7 +175,7 @@ def _cst_eval(x: np.ndarray, weights: np.ndarray, upper: bool) -> np.ndarray:
     B = np.zeros_like(x)
     for i, w in enumerate(weights):
         B += w * comb(n, i, exact=False) * (x ** i) * ((1 - x) ** (n - i))
-    return C * B if upper else -(C * B)
+    return C * B 
 
 def geometric_penalty(au_weights: np.ndarray, al_weights: np.ndarray, chord: float) -> float:
     """
@@ -611,9 +611,9 @@ def objective(x: np.ndarray) -> float:
 
 DE_PARAMS = {
     "strategy":   "best1bin",    # Bonne convergence sur problèmes continus
-    "maxiter":    300,
+    "maxiter":    30,
     "popsize":    12,            
-    "tol":        1e-5,
+    "tol":        1e-3,
     "mutation":   (0.5, 1.0),   # Plage de mutation adaptative
     "recombination": 0.85,
     "seed":       42,
