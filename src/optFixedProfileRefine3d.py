@@ -9,6 +9,8 @@
 # Sinon : python refine_3d.py <chemin/x_best.npy>
 # -------------------------------------------------------------------------------
 
+import copy
+import datetime as dt
 import glob
 import os
 import sys
@@ -69,7 +71,6 @@ def compare_2d_3d(x: np.ndarray, label: str = "") -> dict:
     print(f"  {'Métrique':<20} {'AeroBuildup (2D)':>18} {'LiftingLine (3D)':>18}")
     print(f"  {'-'*58}")
     print(f"  {'L (N)':<20} {L_2D:>18.1f} {L_3D:>18.1f}")
-    print(f"    écart au poids       {(L_2D-weight)/weight*100:>+15.1f}%  {(L_3D-weight)/weight*100:>+15.1f}%")
     print(f"  {'D_aéro (N)':<20} {D_2D:>18.2f} {D_3D:>18.2f}")
     print(f"  {'L/D':<20} {L_2D/D_2D:>18.2f} {L_3D/D_3D:>18.2f}")
     return {"L": L_3D, "D": D_3D, "Cm": ll["Cm"], "CL": ll["CL"]}
@@ -142,7 +143,168 @@ def refine_trim_3d(x_start: np.ndarray, maxiter: int = 80) -> tuple:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. Point d'entrée
+# 4. Export complet du foil raffiné (markdown 3D + XML + airfoils/ + x_best)
+# ─────────────────────────────────────────────────────────────────────────────
+def _export_profile_dat(af_obj, airfoils_dir, filename, name_internal):
+    """Format Selig normalisé, repané à 50 pts/side (cf. V2)."""
+    af_obj = af_obj.repanel(n_points_per_side=50)
+    coords = af_obj.coordinates.copy()
+    x_min, x_max = coords[:, 0].min(), coords[:, 0].max()
+    coords[:, 0] = (coords[:, 0] - x_min) / (x_max - x_min)
+    coords[:, 1] = coords[:, 1] / (x_max - x_min)
+    idx_le = int(np.argmin(coords[:, 0]))
+    upper, lower = coords[:idx_le + 1], coords[idx_le:]
+    if upper[0, 0] < upper[-1, 0]: upper = upper[::-1]
+    if lower[0, 0] > lower[-1, 0]: lower = lower[::-1]
+    final = np.concatenate([upper, lower[1:]])
+    with open(os.path.join(airfoils_dir, filename), "w") as f:
+        f.write(f"{name_internal}\n")
+        for x, y in final:
+            f.write(f" {x:.6f} {y:.6f}\n")
+
+
+def export_refined(x: np.ndarray) -> str:
+    """
+    Génère un dossier outputs/<scenario>_refined3d_<timestamp>/ avec :
+      - fiche_technique_3d.md (métriques LiftingLine)
+      - <case>_<airfoil>_<timestamp>_plane.xml (XFLR5)
+      - airfoils/wing_sec_*.dat, stab_sec_*.dat, mast_sec_*.dat
+      - x_refined.npy (vecteur 10D du foil raffiné, re-loadable)
+    """
+    x = np.clip(x, V2.LB, V2.UB)
+    p = V2.decode(x)
+    airplane, wing, stab, mc, mast_obj, fuselage_obj = V2.build_airplane(p)
+
+    # --- Aéro : LL pour croisière (3D), AB pour décollage ---
+    ll_c = aero_3d(airplane, p["alpha_cruise"])
+    L, D, Cm, CL = ll_c["L"], ll_c["D"], ll_c["Cm"], ll_c["CL"]
+    D_total = D + V2.D_MAST
+
+    op_to = asb.OperatingPoint(velocity=V2.cfg["v_takeoff"], alpha=p["alpha_to"],
+                               atmosphere=V2.atmosphere)
+    ab_to = asb.AeroBuildup(airplane, op_to).run()
+    L_to, D_to, CL_to = float(ab_to["L"]), float(ab_to["D"]), float(ab_to["CL"])
+
+    # --- Métriques équilibre / structure ---
+    X_cg    = p["cg_ratio"] * mc
+    M_wing  = Cm * V2.q_cruise * wing.area() * mc
+    M_rig   = V2.rig_mass * 9.81 * (-(X_cg - V2.x_mast))
+    M_total = M_wing + V2.M_MAST + M_rig
+    v_h     = (stab.area() * p["fuselage_length"]) / (wing.area() * mc)
+    sigma_vm = V2.von_mises_root(p["wing_root_chord"], p["wing_span"])
+
+    # SM analytique (à comparer à VLM)
+    try:
+        sm_approx = V2.neutral_point_ratio(wing, stab, mc, p["fuselage_length"]) - p["cg_ratio"]
+    except Exception:
+        sm_approx = float("nan")
+
+    # SM réelle via VLM (downwash inclus)
+    try:
+        plane_vlm = asb.Airplane(wings=airplane.wings, xyz_ref=airplane.xyz_ref,
+                                 s_ref=airplane.s_ref, c_ref=airplane.c_ref, b_ref=airplane.b_ref)
+        op_p = asb.OperatingPoint(velocity=V2.cfg["v_cruise"], alpha=3.25, atmosphere=V2.atmosphere)
+        op_m = asb.OperatingPoint(velocity=V2.cfg["v_cruise"], alpha=2.75, atmosphere=V2.atmosphere)
+        ap, am = asb.VortexLatticeMethod(plane_vlm, op_p).run(), asb.VortexLatticeMethod(plane_vlm, op_m).run()
+        sm_vlm = -(float(ap["Cm"]) - float(am["Cm"])) / (float(ap["CL"]) - float(am["CL"]))
+    except Exception:
+        sm_vlm = float("nan")
+
+    # --- Dossier de sortie ---
+    now_str = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_dir = os.path.join("outputs", f"{V2.CASE}_refined3d_{now_str}")
+    airfoils_dir = os.path.join(out_dir, "airfoils")
+    os.makedirs(airfoils_dir, exist_ok=True)
+
+    # --- Renommer + exporter chaque section (deepcopy obligatoire car les
+    #     xsecs partagent le même airfoil par référence en mémoire) ---
+    def _rename_and_export(xsecs, prefix):
+        for i, xs in enumerate(xsecs):
+            n = f"{prefix}_sec_{i}"
+            af_copy = copy.deepcopy(xs.airfoil)
+            af_copy.name = n
+            xs.airfoil = af_copy
+            _export_profile_dat(af_copy, airfoils_dir, f"{n}.dat", n)
+
+    _rename_and_export(airplane.wings[0].xsecs, "wing")
+    _rename_and_export(airplane.wings[1].xsecs, "stab")
+    _rename_and_export(mast_obj.xsecs,          "mast")
+
+    # --- XML XFLR5 ---
+    xml_path = os.path.join(out_dir, f"{V2.CASE}_refined3d_{now_str}_plane.xml")
+    try:
+        asb.Airplane(
+            wings=[
+                asb.Wing(symmetric=True, name="mainwing", xsecs=airplane.wings[0].xsecs),
+                asb.Wing(symmetric=True, name="elevator", xsecs=airplane.wings[1].xsecs),
+                mast_obj,
+            ],
+            fuselages=[fuselage_obj],
+            xyz_ref=airplane.xyz_ref,
+        ).export_XFLR5_xml(xml_path)
+    except Exception as e:
+        print(f"  ~ XML XFLR5 non exporté : {e}")
+
+    # --- Fiche markdown (orientée 3D / LiftingLine) ---
+    now_disp = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    sm_real_str = f"{sm_vlm*100:.1f}%" if np.isfinite(sm_vlm) else "n/a"
+    sm_approx_str = f"{sm_approx*100:.1f}%" if np.isfinite(sm_approx) else "n/a"
+    lines = [
+        f"# Fiche Technique — {V2.CASE.upper()}  |  REFINEMENT 3D (LiftingLine)",
+        "", f"*Générée le {now_disp}*",
+        "", "Ce foil a été raffiné en 3D depuis la solution AeroBuildup de V2.",
+        "Les valeurs L, D, CL, CD, L/D ci-dessous viennent de **LiftingLine**",
+        "(downwash et induced drag exacts) — donc plus représentatives que V2.",
+        "", "---", "",
+        "## 0. Configuration", "",
+        f"| Élément | Profil | Span | Corde R/T |",
+        "|:---|:---|:---|:---|",
+        f"| Aile | {V2.WING_AIRFOIL_NAME} | {p['wing_span']*100:.0f} cm | "
+        f"{p['wing_root_chord']*1000:.0f} / {p['wing_tip_chord']*1000:.0f} mm |",
+        f"| Stab | {V2.STAB_AIRFOIL_NAME} | {V2.STAB_SPAN*100:.0f} cm | "
+        f"{V2.STAB_ROOT_CHORD*1000:.0f} / {V2.STAB_TIP_CHORD*1000:.0f} mm |",
+        "", "---", "",
+        "## 1. Trim (raffiné en 3D)", "",
+        "| Variable | Valeur |", "|:---|:---|",
+        f"| Fuselage length | {p['fuselage_length']*100:.1f} cm |",
+        f"| CG ratio | {p['cg_ratio']*100:.1f}% c̄ |",
+        f"| Calage aile | {p['wing_setting_angle']:.2f}° |",
+        f"| Twist | {p['twist']:.2f}° |",
+        f"| Calage stab | {p['s_twist']:.2f}° |",
+        f"| α décollage | {p['alpha_to']:.2f}° |",
+        f"| α croisière | {p['alpha_cruise']:.2f}° |",
+        "", "---", "",
+        "## 2. Performances 3D (LiftingLine)", "",
+        "| Paramètre | Croisière (LL) | Décollage (AB) |",
+        "|:---|:---|:---|",
+        f"| V (m/s) | {V2.cfg['v_cruise']} | {V2.cfg['v_takeoff']} |",
+        f"| L (N) | {L:.1f} | {L_to:.1f} |",
+        f"| D aéro (N) | {D:.2f} | {D_to:.2f} |",
+        f"| CL | {CL:.3f} | {CL_to:.3f} |",
+        f"| D total (+ mât) | {D_total:.2f} | — |",
+        f"| **Finesse L/D** | **{L/D_total:.2f}** | — |",
+        f"| Écart L vs poids | {(L-V2.WEIGHT)/V2.WEIGHT*100:+.1f}% | {(L_to-V2.WEIGHT)/V2.WEIGHT*100:+.1f}% |",
+        "", "---", "",
+        "## 3. Stabilité & Structure", "",
+        "| Paramètre | Valeur | Cible |", "|:---|:---|:---|",
+        f"| SM analytique (Abzug) | {sm_approx_str} | [{V2.cfg['sm_range'][0]*100:.0f}–{V2.cfg['sm_range'][1]*100:.0f}]% |",
+        f"| SM VLM (downwash) | {sm_real_str} | (vérification) |",
+        f"| Moment résiduel | {M_total:.3f} N·m | < {0.05*V2.WEIGHT*mc:.2f} N·m |",
+        f"| Volume de queue V_h | {v_h:.3f} | [{V2.cfg['vh_range'][0]:.2f}–{V2.cfg['vh_range'][1]:.2f}] |",
+        f"| Von Mises root | {sigma_vm/1e6:.1f} MPa | < {V2.SIGMA_CARBONE/1e6:.0f} MPa |",
+        "",
+    ]
+    with open(os.path.join(out_dir, "fiche_technique_3d.md"), "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+    # --- Sauvegarde du X raffiné pour re-load ---
+    np.save(os.path.join(out_dir, "x_refined.npy"), x)
+
+    return out_dir
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. Point d'entrée
 # ─────────────────────────────────────────────────────────────────────────────
 def main() -> None:
     # Chargement du X : argv > dernier outputs/*/x_best.npy > X_REF
@@ -187,6 +349,14 @@ def main() -> None:
     # 3) Comparaison finale
     print("\n[3/3] Aéro 3D du foil raffiné :")
     compare_2d_3d(x_refined, label="(après refinement)")
+
+    # 4) Export complet du foil raffiné
+    print("\n[4/4] Export du foil raffiné...")
+    out_dir = export_refined(x_refined)
+    print(f"  ✓ Fiche technique : {out_dir}/fiche_technique_3d.md")
+    print(f"  ✓ XML XFLR5       : {out_dir}/*.xml")
+    print(f"  ✓ Profils .dat    : {out_dir}/airfoils/")
+    print(f"  ✓ X raffiné       : {out_dir}/x_refined.npy")
     print(f"\n{'='*70}\n")
 
 
