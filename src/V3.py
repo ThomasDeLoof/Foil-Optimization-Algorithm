@@ -87,64 +87,42 @@ SIGMA_CAV     = (P_ATM + atmosphere.density() * 9.81 * profondeur_imm - P_VAPOR)
               / (0.5 * atmosphere.density() * cfg["v_cruise"] ** 2)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. FOILS DE RÉFÉRENCE 
+# 2. GÉOMÉTRIE — profils et dimensions stab
 # ─────────────────────────────────────────────────────────────────────────────
-# géométrie brute (profil, envergure, cordes R/T)
 
-SCENARIO_GEOMETRY = {
-    # ─────────────────────────────────────────────────────────────────────────
-    # Wingfoil freeride intermédiaire/avancé — AILE : AXIS BSC 890
-    #   Specs constructeur (verified MacKite/Live2Kite/Maxtrack) :
-    #     span = 890 mm, max chord (root) = 170 mm, area = 1290 cm², AR = 6.43
-    #   tip_chord (53 mm) CALIBRÉ pour matcher 1290 cm² avec loi PURE-ELLIPTIQUE
-    #   (cf. build_airplane). Vérifié → 1290 cm² / AR 6.14.
-    # STAB : AXIS Skinny 365/55 (companion typique du BSC 890)
-    #   Specs : span = 365 mm, max chord = 55 mm, area = 168 cm², AR = 8.06
-    #   tip_chord (13 mm) calibré → 168 cm² / AR 7.93. Saumon pointu (Skinny).
-    # Profil aile : NACA 2410 (10% épais, 2% cambrure — approximation publique
-    #   d'un profil hydrofoil moderne, les profils Axis sont propriétaires).
-    # Profil stab : NACA 0012 (symétrique, standard pour stab calé).
-    # ─────────────────────────────────────────────────────────────────────────
-    "wingfoil": {
-        "wing": {"airfoil": "naca2410", "span": 0.890, "root_chord": 0.170, "tip_chord": 0.053},
-        "stab": {"airfoil": "naca0012", "span": 0.365, "root_chord": 0.055, "tip_chord": 0.013},
-    },
-    # ─────────────────────────────────────────────────────────────────────────
-    # TODO — Les scénarios ci-dessous sont des estimations LIBRES, non calibrées
-    # sur un foil de référence vérifié. À auditer (cf. wingfoil ci-dessus pour
-    # la méthode : choisir un modèle commercial, calibrer tip_chord pour matcher
-    # l'aire constructeur avec la loi de cordes du code).
-    # ─────────────────────────────────────────────────────────────────────────
-    "windsurf": {
-        "wing": {"airfoil": "naca2412", "span": 0.85, "root_chord": 0.15, "tip_chord": 0.05},
-        "stab": {"airfoil": "naca0012", "span": 0.40, "root_chord": 0.09, "tip_chord": 0.04},
-    },
-    "downwind": {
-        "wing": {"airfoil": "naca2412", "span": 1.30, "root_chord": 0.14, "tip_chord": 0.03},
-        "stab": {"airfoil": "naca0012", "span": 0.36, "root_chord": 0.07, "tip_chord": 0.02},
-    },
-    "pumping": {
-        "wing": {"airfoil": "naca2415", "span": 1.40, "root_chord": 0.19, "tip_chord": 0.05},
-        "stab": {"airfoil": "naca0012", "span": 0.42, "root_chord": 0.08, "tip_chord": 0.03},
-    },
-}
+WING_AIRFOIL_NAME = cfg["wing_airfoil"]
+STAB_AIRFOIL_NAME = phy["stab"]["airfoil"]
 
-if CASE not in SCENARIO_GEOMETRY:
-    raise ValueError(f"Géométrie figée non définie pour '{CASE}'")
+# Warm-start de la planform aile (les vraies dimensions sont optimisées)
+WING_SPAN         = phy["wing"]["span_init"]
+WING_ROOT_CHORD   = phy["wing"]["root_chord_init"]
+WING_TIP_CHORD    = phy["wing"]["tip_chord_init"]
 
-geom = SCENARIO_GEOMETRY[CASE]
-WING_AIRFOIL_NAME = geom["wing"]["airfoil"]
-WING_SPAN         = geom["wing"]["span"]
-WING_ROOT_CHORD   = geom["wing"]["root_chord"]
-WING_TIP_CHORD    = geom["wing"]["tip_chord"]
-STAB_AIRFOIL_NAME = geom["stab"]["airfoil"]
-STAB_SPAN         = geom["stab"]["span"]
-STAB_ROOT_CHORD   = geom["stab"]["root_chord"]
-STAB_TIP_CHORD    = geom["stab"]["tip_chord"]
+# Stab figé par scénario
+STAB_SPAN         = cfg["stab_span"]
+STAB_ROOT_CHORD   = cfg["stab_root_chord"]
+STAB_TIP_CHORD    = cfg["stab_tip_chord"]
 
-# Précalcul des airfoils (lecture coordonnées NACA, une seule fois)
-WING_AIRFOIL = asb.Airfoil(WING_AIRFOIL_NAME)
-STAB_AIRFOIL = asb.Airfoil(STAB_AIRFOIL_NAME)
+# Précalcul des airfoils, avec import robuste (ASB n'a PAS tous les NACA 6-series).
+def _load_airfoil(name: str, fallback: str = "naca2410"):
+    """Charge un profil ASB, retombe sur `fallback` si la librairie n'a pas les coords."""
+    try:
+        af = asb.Airfoil(name)
+        if af.coordinates is not None and len(af.coordinates) >= 30:
+            return af
+    except Exception:
+        pass
+    print(f"  ⚠ Profil '{name}' indisponible dans ASB → fallback '{fallback}'")
+    return asb.Airfoil(fallback)
+
+
+WING_AIRFOIL = _load_airfoil(WING_AIRFOIL_NAME, fallback="naca2410")
+STAB_AIRFOIL = _load_airfoil(STAB_AIRFOIL_NAME, fallback="naca0012")
+# Si fallback a eu lieu, le nom officiel utilisé en aval reste le nom demandé,
+# mais le .dat exporté correspondra au fallback (visible dans XFLR5).
+WING_AIRFOIL_NAME = WING_AIRFOIL.name
+STAB_AIRFOIL_NAME = STAB_AIRFOIL.name
+
 try:
     WING_THICKNESS_REL = float(WING_AIRFOIL.max_thickness())
 except Exception:
@@ -154,7 +132,8 @@ except Exception:
 # 3. VECTEUR D'OPTIMISATION
 # ─────────────────────────────────────────────────────────────────────────────
 # x = [fuselage_length, cg_ratio, wing_setting_angle, twist,
-#      s_twist, alpha_to, alpha_cruise]
+#      s_twist, alpha_to, alpha_cruise,
+#      wing_span, wing_root_chord, wing_tip_chord]
 
 BOUNDS = [
     tuple(phy["fuselage"]["length_bounds"]),                           # 0 fuselage_length (m)
@@ -164,6 +143,9 @@ BOUNDS = [
     tuple(phy["stab"]["twist_bounds"]),                                # 4 s_twist (°)
     tuple(phy["alpha"]["bounds"]),                                     # 5 alpha_to (°)
     tuple(phy["alpha"]["bounds"]),                                     # 6 alpha_cruise (°)
+    tuple(phy["wing"]["span_bounds"]),                                 # 7 wing_span (m)
+    tuple(phy["wing"]["root_chord_bounds"]),                           # 8 wing_root_chord (m)
+    tuple(phy["wing"]["tip_chord_bounds"]),                            # 9 wing_tip_chord (m)
 ]
 N_VAR = len(BOUNDS)
 LB    = np.array([b[0] for b in BOUNDS])
@@ -180,16 +162,46 @@ def decode(x: np.ndarray) -> dict:
         "s_twist":            float(x[4]),
         "alpha_to":           float(x[5]),
         "alpha_cruise":       float(x[6]),
+        "wing_span":          float(x[7]),
+        "wing_root_chord":    float(x[8]),
+        "wing_tip_chord":     float(x[9]),
     }
 
 
-# Vecteur de référence (warm-start) : milieu des bornes — toujours admissible
+# Warm-start : milieu des bornes, mais on initialise la planform sur la
+# géométrie de référence du scénario (AXIS BSC 890 pour wingfoil).
 X_REF = np.array([(b[0] + b[1]) / 2 for b in BOUNDS])
+X_REF[7] = WING_SPAN
+X_REF[8] = WING_ROOT_CHORD
+X_REF[9] = WING_TIP_CHORD
 X_REF = np.clip(X_REF, LB, UB)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. CONSTRUCTION DE L'AVION
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _adaptive_tip_kick(c_root: float, c_tip: float, span: float,
+                       sweep_deg_local: float, N: int,
+                       sweep_power: float = 1.5,
+                       kick_start: float = 0.85,
+                       target_push: float = 0.020) -> float:
+    """
+    Calcule le 'tip kick' (recul additionnel au 1/4 corde près du saumon) qui
+    garantit un push-back ≥ `target_push` (m) entre la section pénultième et
+    la section de tip. Si la sweep naturelle suffit déjà, retourne 0.
+    """
+    if N < 2:
+        return 0.0
+    r_pen = (N - 2) / (N - 1)
+    delta_c = (c_root - c_tip) * np.sqrt(max(1 - r_pen ** 2, 0.0))
+    K       = (span / 2.0) * np.tan(np.radians(sweep_deg_local))
+    push_natural = K * (1.0 - r_pen ** sweep_power) - 0.75 * delta_c
+    if r_pen <= kick_start:
+        return max(0.0, target_push - push_natural)
+    s  = (r_pen - kick_start) / (1.0 - kick_start)
+    ss = s * s * (3.0 - 2.0 * s)
+    return max(0.0, (target_push - push_natural) / max(1.0 - ss, 0.01))
+
 
 def build_airplane(p: dict) -> tuple:
     """
@@ -200,38 +212,38 @@ def build_airplane(p: dict) -> tuple:
     Stab : géométrie figée + twist uniforme = s_twist.
     """
     # ── Aile principale ──────────────────────────────────────────────────────
-    # Planform pure-elliptique (style AXIS BSC) + sweep non-linéaire + tip kick.
-    # Le "tip kick" : sur les 15 % extérieurs (r > 0.85) on ajoute un recul
-    # supplémentaire au 1/4 corde, via smoothstep C¹ continu, pour que la
-    # dernière section pointe nettement vers l'arrière (et non "rentre"
-    # dans la section précédente).
+    # Planform pure-elliptique + sweep non-linéaire + tip kick ADAPTATIF.
+    # Le kick (recul additionnel du 1/4 corde au saumon, smoothstep C¹) est
+    # calculé pour garantir un push-back monotone du TE quelle que soit la
+    # géométrie courante (span/cordes/sweep libres).
+    span_w  = p["wing_span"]
+    root_w  = p["wing_root_chord"]
+    tip_w   = min(p["wing_tip_chord"], root_w * 0.95)  # sécurité tip < root
+    sweep_power_w    = 1.5
+    tip_kick_start_w = 0.85
+    tip_kick_amount_w = _adaptive_tip_kick(root_w, tip_w, span_w, sweep_deg,
+                                           N_WING, sweep_power_w, tip_kick_start_w)
+
     wing_xsecs = []
-    sweep_power_w     = 1.5
-    tip_kick_start_w  = 0.85
-    tip_kick_amount_w = 0.070  # m — recul additionnel du 1/4 corde au tip
     for i in range(N_WING):
         r = i / (N_WING - 1)
 
-        # Distribution de cordes pure-elliptique : c(0)=root, c(1)=tip
-        c_dist = WING_TIP_CHORD + (WING_ROOT_CHORD - WING_TIP_CHORD) \
-                 * np.sqrt(max(1 - r ** 2, 0))
+        c_dist = tip_w + (root_w - tip_w) * np.sqrt(max(1 - r ** 2, 0))
 
-        # Sweep au quart de corde — power-law + tip kick (smoothstep)
         kick_w = 0.0
         if r > tip_kick_start_w:
             s = (r - tip_kick_start_w) / (1.0 - tip_kick_start_w)
             kick_w = tip_kick_amount_w * s * s * (3.0 - 2.0 * s)
-        x_qc = (r ** sweep_power_w) * WING_SPAN / 2 * np.tan(np.radians(sweep_deg)) + kick_w
-        x_le = x_qc + 0.25 * (WING_ROOT_CHORD - c_dist)
+        x_qc = (r ** sweep_power_w) * span_w / 2 * np.tan(np.radians(sweep_deg)) + kick_w
+        x_le = x_qc + 0.25 * (root_w - c_dist)
 
-        # Anhédral en r² + petit winglet en r⁵ (les deux vers le bas)
-        z_pos = -((r ** 2) * WING_SPAN / 2) * np.tan(np.radians(wing_anhedral_deg)) \
+        z_pos = -((r ** 2) * span_w / 2) * np.tan(np.radians(wing_anhedral_deg)) \
                 - 0.020 * r ** 5
 
         section_twist = p["wing_setting_angle"] + p["twist"] * r
 
         wing_xsecs.append(asb.WingXSec(
-            xyz_le=[x_le, r * WING_SPAN / 2, z_pos],
+            xyz_le=[x_le, r * span_w / 2, z_pos],
             chord=c_dist,
             twist=section_twist,
             airfoil=WING_AIRFOIL,
@@ -265,12 +277,15 @@ def build_airplane(p: dict) -> tuple:
     mast_obj = asb.Wing(name="Mast", symmetric=False, xsecs=mast_xsecs)
 
     # ── Stabilisateur ────────────────────────────────────────────────────────
-
+    # Stab figé (companion typique du foil). Tip kick adaptatif via helper.
+    # kick_start abaissé à 0.65 car N_STAB plus faible (sinon wobble visible).
     x_stab_root = x_fuselage_start + p["fuselage_length"] - STAB_FUSE_OFFSET
-    stab_xsecs  = []
-    sweep_power_s     = 1.5
-    tip_kick_start_s  = 0.65
-    tip_kick_amount_s = 0.035  # m — large car la corde stab shrinke fort (55→13 mm)
+    sweep_power_s    = 1.5
+    tip_kick_start_s = 0.65
+    tip_kick_amount_s = _adaptive_tip_kick(STAB_ROOT_CHORD, STAB_TIP_CHORD,
+                                           STAB_SPAN, STAB_SWEEP_DEG, N_STAB,
+                                           sweep_power_s, tip_kick_start_s)
+    stab_xsecs = []
     for i in range(N_STAB):
         r = i / (N_STAB - 1)
 
@@ -306,41 +321,26 @@ def build_airplane(p: dict) -> tuple:
 # 5. CONTRAINTE STRUCTURELLE 
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _von_mises_root_constant() -> float:
+def von_mises_root(chord_root: float, span: float) -> float:
     """
     Approximation Von Mises à l'emplanture — section coque carbone + âme polystyrène.
-
-    Modélisation : ellipse creuse à parois minces (peau carbone d'épaisseur t_skin,
-    intérieur polystyrène dont la contribution mécanique est négligée).
-        - Flexion : I_xx = π/4 · [a·b³ − (a−t)·(b−t)³]  (ellipse externe − interne)
-        - Torsion : formule de Bredt pour section fermée mince
-                    τ = T / (2 · A_enc · t_skin)
-    Charge demi-aile = WEIGHT/2 appliquée à span/4 (distribution elliptique).
+    Maintenant fonction de la planform (planform libérée dans l'optimisation).
     """
-    chord     = WING_ROOT_CHORD
-    span_semi = WING_SPAN / 2.0
-    t_max     = WING_THICKNESS_REL * chord
-    a, b      = chord / 2.0, t_max / 2.0
+    span_semi = span / 2.0
+    t_max     = WING_THICKNESS_REL * chord_root
+    a, b      = chord_root / 2.0, t_max / 2.0
 
-    # Garde-fou : la peau ne peut pas dépasser le demi-épaisseur (section solide limite)
     t_skin     = min(WING_SKIN_THICK, 0.9 * b)
     a_in, b_in = max(a - t_skin, 0.0), max(b - t_skin, 0.0)
-
-    # Inertie de flexion : ellipse pleine moins ellipse intérieure
     I_xx  = (np.pi / 4.0) * (a * b ** 3 - a_in * b_in ** 3)
-    # Aire enclose par la peau (centre de la peau, approximation mince)
     A_enc = np.pi * a * b
 
-    # Moments à l'emplanture
     M_flex = (WEIGHT / 2.0) * (span_semi / 4.0)
-    M_tors = (WEIGHT / 2.0) * (0.05 * chord) * (span_semi / 2.0)
+    M_tors = (WEIGHT / 2.0) * (0.05 * chord_root) * (span_semi / 2.0)
 
     sigma_flex = M_flex * b / (I_xx + 1e-12)
     tau        = M_tors / (2.0 * A_enc * t_skin + 1e-12)
     return float(np.sqrt(sigma_flex ** 2 + 3 * tau ** 2))
-
-
-SIGMA_VM_ROOT = _von_mises_root_constant()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. MARGE STATIQUE ANALYTIQUE
@@ -440,6 +440,7 @@ def objective(x: np.ndarray) -> float:
                                      atmosphere=atmosphere)
         aero_to = asb.AeroBuildup(airplane, op_to).run()
         L_to    = float(aero_to["L"])
+        D_to    = float(aero_to["D"])
         CL_to   = float(aero_to["CL"])
     except Exception:
         return 1e6  # exception matrice AeroBuildup
@@ -456,9 +457,12 @@ def objective(x: np.ndarray) -> float:
     penalty += K1 * soft_penalty(L_to, WEIGHT, np.inf, ref=WEIGHT)
     penalty += K1 * soft_penalty(CL_to, -np.inf, CL_MAX_TO, ref=CL_MAX_TO)
 
-    # Régime d'opération sain : α_cruise ≥ 0 sur profil cambré
-    # (en α<0 le profil est en zone non-linéaire négative, Cm(α) erratique)
-    penalty += K2 * soft_penalty(p["alpha_cruise"], -0.005, np.inf, ref=2.0)
+    # Régime d'opération sain : α_cruise ≥ -1° sur profil cambré
+    # (en α<-1° on tombe en zone non-linéaire négative pour NACA modérément cambré,
+    #  Cm(α) devient erratique. Mais α ∈ [-1, 0]° reste en régime linéaire correct.
+    #  Tolérance plus large que 0° car certains scénarios (wingfoil/windsurf) opèrent
+    #  intrinsèquement à CL très faible vu leurs combinaisons foil+vitesse.)
+    penalty += K2 * soft_penalty(p["alpha_cruise"], -1.0, np.inf, ref=2.0)
 
     # Équilibre de tangage en croisière (tolérance ±5 % de M_ref)
     X_cg    = p["cg_ratio"] * mean_chord
@@ -480,6 +484,10 @@ def objective(x: np.ndarray) -> float:
 
     # ── Pénalités auxiliaires ────────────────────────────────
 
+    # Contrainte structurelle : von Mises emplanture (coque carbone)
+    sigma_vm = von_mises_root(p["wing_root_chord"], p["wing_span"])
+    penalty += K1 * soft_penalty(sigma_vm, 0.0, SIGMA_CARBONE, ref=SIGMA_CARBONE)
+
     # Volume de queue géométrique
     v_h = (S_stab * p["fuselage_length"]) / (S_wing * mean_chord + 1e-12)
     vh_lo, vh_hi = cfg["vh_range"]
@@ -489,7 +497,14 @@ def objective(x: np.ndarray) -> float:
     Cp_min = -(1.2 * abs(CL) + 3.0 * WING_THICKNESS_REL)
     penalty += K3 * soft_penalty(Cp_min, -SIGMA_CAV, np.inf, ref=SIGMA_CAV)
 
-    return D_total + penalty
+    # Cible d'aire douce : reste dans la fourchette du scénario (S_wing libéré)
+    sw_lo, sw_hi = cfg["area_target_range"]
+    penalty += K3 * soft_penalty(S_wing, sw_lo, sw_hi, ref=0.5*(sw_lo+sw_hi))
+
+    # Objectif multi-point : D_cruise + W_TO × D_takeoff
+    # (le décollage compte mais moins que la croisière, qui dure plus longtemps)
+    W_TAKEOFF = 0.3
+    return D_total + W_TAKEOFF * D_to + penalty
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -513,9 +528,7 @@ DE_PARAMS = {
 def _de_callback(_xk: np.ndarray, convergence: float) -> bool:
     """
     Affichage léger toutes les 5 générations.
-    On NE ré-évalue PAS objective(xk) ici : ça doublerait le coût des gens
-    affichées en cassant le parallélisme (appel séquentiel sur master).
-    Le détail D / pénalité arrivera dans full_report en fin de run.
+    Attention ne ré-évalue PAS objective(xk) (ça doublerait le coût des gens)
     """
     _run_counter["n"] += 1
     gen = _run_counter["n"]
@@ -537,19 +550,26 @@ def _heuristic_starts() -> list:
     """
     seeds = []
     fl_mid = 0.5 * (BOUNDS[0][0] + BOUNDS[0][1])
+    # Planform : warm-start sur la référence scénario + une variante plus petite
+    planforms = [
+        (WING_SPAN, WING_ROOT_CHORD, WING_TIP_CHORD),                    # référence
+        (0.85 * WING_SPAN, 0.85 * WING_ROOT_CHORD, 0.85 * WING_TIP_CHORD),  # 15% plus petit
+    ]
     for cg in (0.35 * (BOUNDS[1][0] + BOUNDS[1][1]),
                0.60 * (BOUNDS[1][0] + BOUNDS[1][1])):
         for ac in (2.0, 4.0):
-            seeds.append(np.array([fl_mid, cg, 0.0, -1.0, -2.0, 7.0, ac]))
+            for sp, rc, tc in planforms:
+                seeds.append(np.array([fl_mid, cg, 0.0, -1.0, -2.0, 7.0, ac, sp, rc, tc]))
     return [np.clip(s, LB, UB) for s in seeds]
 
 
 def run_multistart(n_starts: int = 1) -> np.ndarray:
     print(f"\n{'='*65}")
     print(f"  MULTI-START DE — {n_starts} runs | {CASE.upper()}")
-    print(f"  Aile (figée) : {WING_AIRFOIL_NAME}  b={WING_SPAN*100:.0f} cm  "
-          f"c_R/T={WING_ROOT_CHORD*1000:.0f}/{WING_TIP_CHORD*1000:.0f} mm")
-    print(f"  Stab (figé)  : {STAB_AIRFOIL_NAME}  b={STAB_SPAN*100:.0f} cm  "
+    print(f"  Profil aile : {WING_AIRFOIL_NAME}    Profil stab : {STAB_AIRFOIL_NAME}")
+    print(f"  Init aile (warm-start) : b={WING_SPAN*100:.0f} cm  "
+          f"c_R/T={WING_ROOT_CHORD*1000:.0f}/{WING_TIP_CHORD*1000:.0f} mm — librement optimisé")
+    print(f"  Stab figé : b={STAB_SPAN*100:.0f} cm  "
           f"c_R/T={STAB_ROOT_CHORD*1000:.0f}/{STAB_TIP_CHORD*1000:.0f} mm")
     print(f"  N_VAR={N_VAR}  pop={DE_PARAMS['popsize']*N_VAR}  gen={DE_PARAMS['maxiter']}")
     print(f"{'='*65}")
@@ -650,7 +670,7 @@ def full_report(x: np.ndarray) -> None:
     # Décollage
     op_to   = asb.OperatingPoint(velocity=cfg["v_takeoff"], alpha=p["alpha_to"], atmosphere=atmosphere)
     aero_to = asb.AeroBuildup(airplane, op_to).run()
-    L_to, CL_to = float(aero_to["L"]), float(aero_to["CL"])
+    L_to, D_to, CL_to = float(aero_to["L"]), float(aero_to["D"]), float(aero_to["CL"])
 
     # Stabilité — comparaison approx. analytique (utilisée en opti) vs réelle (AeroBuildup)
     X_np_ratio = neutral_point_ratio(wing, stab, mean_chord, p["fuselage_length"])
@@ -696,15 +716,19 @@ def full_report(x: np.ndarray) -> None:
 
     AR_w, AR_s = float(wing.aspect_ratio()), float(stab.aspect_ratio())
 
+    # Von Mises emplanture (recalculé pour la planform courante)
+    sigma_vm = von_mises_root(p["wing_root_chord"], p["wing_span"])
+
     print(f"\n{'='*65}")
     print(f"  RÉSULTAT FINAL — {CASE.upper()}  (V3 Paramétrique)")
     print(f"{'='*65}")
-    print(f"  Aile (figée)     : {WING_AIRFOIL_NAME}  b={WING_SPAN*100:.0f} cm  "
-          f"c_R/T={WING_ROOT_CHORD*1000:.0f}/{WING_TIP_CHORD*1000:.0f} mm")
+    print(f"  Aile (optimisée) : {WING_AIRFOIL_NAME}  b={p['wing_span']*100:.0f} cm  "
+          f"c_R/T={p['wing_root_chord']*1000:.0f}/{p['wing_tip_chord']*1000:.0f} mm")
     print(f"  Stab (figé)      : {STAB_AIRFOIL_NAME}  b={STAB_SPAN*100:.0f} cm  "
           f"c_R/T={STAB_ROOT_CHORD*1000:.0f}/{STAB_TIP_CHORD*1000:.0f} mm")
     print(f"  {'─'*55}")
-    print(f"  Traînée totale   : {D_total:6.2f} N    Finesse L/D : {L/D_total:5.2f}")
+    print(f"  Traînée croisière: {D_total:6.2f} N    Finesse L/D : {L/D_total:5.2f}")
+    print(f"  Traînée décollage: {D_to:6.2f} N    (multi-point objective w·D_to)")
     print(f"  α cruise / α to  : {p['alpha_cruise']:5.2f}° / {p['alpha_to']:5.2f}°")
     print(f"  Calage aile      : {p['wing_setting_angle']:5.2f}°    Twist : {p['twist']:5.2f}°")
     print(f"  Calage stab      : {p['s_twist']:5.2f}°")
@@ -718,7 +742,7 @@ def full_report(x: np.ndarray) -> None:
     print(f"  Volume de queue  : {v_h:5.3f}        (cible [{cfg['vh_range'][0]:.2f}–{cfg['vh_range'][1]:.2f}])")
     print(f"  L décollage      : {L_to:6.1f} / {WEIGHT:.1f} N   CL_to : {CL_to:.3f} / {CL_MAX_TO}")
     print(f"  Moment résiduel  : {M_total:.3f} N·m   Force stab : {F_stab:.1f} N")
-    print(f"  Von Mises root   : {SIGMA_VM_ROOT/1e6:.1f} MPa / {SIGMA_CARBONE/1e6:.0f} MPa")
+    print(f"  Von Mises root   : {sigma_vm/1e6:.1f} MPa / {SIGMA_CARBONE/1e6:.0f} MPa")
     print(f"  σ_v cavitation   : {SIGMA_CAV:.2f}")
 
     # ── Récap des contraintes ───────────────────────────────────────────────
@@ -732,9 +756,9 @@ def full_report(x: np.ndarray) -> None:
         ("|M_total| ≤ 5% M_ref",    abs(M_total) <= M_tol),
         ("SM (opti) dans cible",    sm_lo <= SM_approx <= sm_hi),
         ("Cavitation OK",           Cp_min >= -SIGMA_CAV),
-        ("σ_VM ≤ σ_carbone",        SIGMA_VM_ROOT <= SIGMA_CARBONE),
+        ("σ_VM ≤ σ_carbone",        sigma_vm <= SIGMA_CARBONE),
         ("V_h dans cible",          cfg["vh_range"][0] <= v_h <= cfg["vh_range"][1]),
-        ("α_cruise ≥ 0° (cambré)",  p["alpha_cruise"] >= 0.0),
+        ("α_cruise ≥ -1°",          p["alpha_cruise"] >= -1.0),
     ]
     print(f"  {'─'*55}")
     n_ok = sum(1 for _, ok in checks if ok)
@@ -750,7 +774,8 @@ def full_report(x: np.ndarray) -> None:
     os.makedirs(out_dir, exist_ok=True)
 
     _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
-               SM_approx, SM_real, F_stab, v_h, M_total, L_to, CL_to, rho, mu, X_cg, AR_w, AR_s)
+               SM_approx, SM_real, F_stab, v_h, M_total, L_to, CL_to, rho, mu, X_cg, AR_w, AR_s,
+               sigma_vm)
 
     xml_path = os.path.join(out_dir, f"{CASE}_v3param_{now_str}_plane.xml")
     try:
@@ -786,10 +811,11 @@ def full_report(x: np.ndarray) -> None:
 
 
 def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
-               SM_approx, SM_real, F_stab, v_h, M_total, L_to, CL_to, rho, mu, X_cg, AR_w, AR_s):
+               SM_approx, SM_real, F_stab, v_h, M_total, L_to, CL_to, rho, mu, X_cg, AR_w, AR_s,
+               sigma_vm):
     now_str = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    Re_root = rho * cfg["v_cruise"] * WING_ROOT_CHORD / mu
-    Re_tip  = rho * cfg["v_cruise"] * WING_TIP_CHORD  / mu
+    Re_root = rho * cfg["v_cruise"] * p["wing_root_chord"] / mu
+    Re_tip  = rho * cfg["v_cruise"] * p["wing_tip_chord"]  / mu
     CL_c    = L / (0.5 * rho * cfg["v_cruise"] ** 2 * wing.area())
     CD_c    = D / (0.5 * rho * cfg["v_cruise"] ** 2 * wing.area())
 
@@ -799,7 +825,7 @@ def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
         "## 0. Foils de référence (figés)", "",
         "| Élément | Profil | Span | Corde R/T |",
         "|:---|:---|:---|:---|",
-        f"| Aile  | {WING_AIRFOIL_NAME} | {WING_SPAN*100:.0f} cm | {WING_ROOT_CHORD*1000:.0f} / {WING_TIP_CHORD*1000:.0f} mm |",
+        f"| Aile  | {WING_AIRFOIL_NAME} | {p['wing_span']*100:.0f} cm | {p['wing_root_chord']*1000:.0f} / {p['wing_tip_chord']*1000:.0f} mm |",
         f"| Stab  | {STAB_AIRFOIL_NAME} | {STAB_SPAN*100:.0f} cm | {STAB_ROOT_CHORD*1000:.0f} / {STAB_TIP_CHORD*1000:.0f} mm |",
         "", "---", "",
         "## 1. Variables optimisées (7)", "",
@@ -845,7 +871,7 @@ def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
         f"| Moment résiduel | {M_total:.3f} N·m | < {0.05*WEIGHT*mean_chord:.2f} N·m |",
         f"| Force stab (info) | {F_stab:.1f} N | — |",
         f"| Volume de queue | {v_h:.3f} | [{cfg['vh_range'][0]:.2f}–{cfg['vh_range'][1]:.2f}] |",
-        f"| Von Mises root | {SIGMA_VM_ROOT/1e6:.1f} MPa | < {SIGMA_CARBONE/1e6:.0f} MPa |",
+        f"| Von Mises root | {sigma_vm/1e6:.1f} MPa | < {SIGMA_CARBONE/1e6:.0f} MPa |",
         f"| σ_v cavitation | {SIGMA_CAV:.2f} | — |",
         "",
     ]
@@ -861,8 +887,8 @@ def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
         warn.append(f"⚠️ CL_to {CL_to:.2f} > CL_max {CL_MAX_TO}")
     if abs(M_total) > 0.05 * WEIGHT * mean_chord:
         warn.append(f"⚠️ Moment résiduel {M_total:.2f} N·m hors tolérance 5%")
-    if SIGMA_VM_ROOT > SIGMA_CARBONE:
-        warn.append(f"⚠️ Von Mises {SIGMA_VM_ROOT/1e6:.0f} MPa > admissible")
+    if sigma_vm > SIGMA_CARBONE:
+        warn.append(f"⚠️ Von Mises {sigma_vm/1e6:.0f} MPa > admissible")
     if warn:
         lines += ["## ⚠️ Avertissements", ""] + [f"- {w}" for w in warn] + [""]
 

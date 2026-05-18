@@ -1,5 +1,5 @@
 # =============================================================================
-# physics.yaml — Paramètres physiques et géométriques du système foil
+# parameters.yaml — Paramètres physiques et géométriques du système foil
 # =============================================================================
 # Contient tous les paramètres fixes indépendants du cas d'usage
 # =============================================================================
@@ -12,10 +12,10 @@ case: "wingfoil"
 
 
 # -----------------------------------------------------------------------------
-# MASSES FIXES 
+# MASSES FIXES
 # -----------------------------------------------------------------------------
 pilot:
-  mass_kg: 75     
+  mass_kg: 75
 
 board:
   mass_kg: 6              # Planche (composite, taille standard)
@@ -38,7 +38,7 @@ alpha:
 Kulfan:
   N_CST: 8          # Coefficients par surface (extrados + intrados)
   DELTA: 0.05       # Demi-amplitude des bornes autour des valeurs de référence
-  NACA_REF_NAME: "naca2412"  # Choix du profil de référence pour l'initialisation 
+  NACA_REF_NAME: "naca2412"  # Choix du profil de référence pour l'initialisation
 
 # -----------------------------------------------------------------------------
 # AILE PRINCIPALE
@@ -46,21 +46,21 @@ Kulfan:
 wing:
   # Bornes larges — l'optimiseur choisit librement dans cette plage
   span_bounds: [0.75, 1.40]         # 75 cm (race) à 140 cm (pumping/débutant)
-  span_init: 1.0                  
+  span_init: 0.89                   # Warm-start AXIS BSC 890 (calibré)
 
   root_chord_bounds: [0.10, 0.30]   # 10 cm (trop mince) à 30 cm (très épais)
-  root_chord_init: 0.18             # ~180 mm, typique freeride
+  root_chord_init: 0.170            # 170 mm — root max chord BSC 890
 
   tip_chord_bounds: [0.01, 0.12]    # Saumon entre 10 mm et 120 mm
-  tip_chord_init: 0.04
+  tip_chord_init: 0.053             # 53 mm — calibré pour 1290 cm² @ loi elliptique
 
-  twist_bounds: [-5.0, 1.0]       
-  twist_init: -1.5               
+  twist_bounds: [-5.0, 1.0]
+  twist_init: -1.5
 
   # Géométrie fixe
   sweep_deg: 15.0                   # Flèche modérée — anti-algues
   anhedral_deg: 4.0                 # Stabilité en roulis sans trop pénaliser la portance
-  n_sections: 10                    
+  n_sections: 10
 
   # Limite physique décollage
   cl_max_takeoff: 1.3               # Conservateur pour un NACA cambré (réel ~1.4 max)
@@ -70,14 +70,14 @@ wing:
 
 
 # -----------------------------------------------------------------------------
-# FUSELAGE 
+# FUSELAGE
 # -----------------------------------------------------------------------------
 fuselage:
   length_bounds: [0.60, 0.95]       # 60 cm (court/pumping) à 95 cm (long/windsurf)
-  length_init: 0.75                
+  length_init: 0.75
   diameter: 0.035                   # 35 mm diamètre standard tube carbone
   x_start: 0.10                     # Nez fuselage à 10 cm derrière le BA aile
-  n_sections: 6                     
+  n_sections: 6
 
 
 # -----------------------------------------------------------------------------
@@ -85,10 +85,10 @@ fuselage:
 # -----------------------------------------------------------------------------
 mast:
   length: 0.82                      # 82 cm total (standard freeride)
-  immersion_depth: 0.45            
+  immersion_depth: 0.45
   chord_top: 0.135                  # Corde en haut (ligne de flottaison)
   chord_bot: 0.110                  # Corde en bas (plus fin pour la traînée)
-  profile: "naca0015"               # Symétrique épais 
+  profile: "naca0015"               # Symétrique épais
   x_position: 0.25                  # 25 cm derrière le BA aile (position standard)
   cd: 0.011                         # Cd conservateur (néglige la ventilation)
   n_sections: 5
@@ -98,16 +98,12 @@ mast:
 # STABILISATEUR
 # -----------------------------------------------------------------------------
 stab:
-  span_bounds: [0.18, 0.55]         # 18 cm (race) à 55 cm (pumping/débutant)
-  span_init: 0.35
+  # NB : les dimensions du stab (span/cordes) sont définies PAR SCÉNARIO dans
+  # scenarios.yaml (elles dépendent du foil principal). Le stab n'est pas
+  # optimisé — c'est une géométrie figée du "companion".
+  airfoil: "naca0012"               # Symétrique standard pour stab calé
 
-  root_chord_bounds: [0.05, 0.22]   # Ouvert — l'AR découle des bornes de surface
-  root_chord_init: 0.10
-
-  tip_chord_bounds: [0.01, 0.08]    # Saumon fin
-  tip_chord_init: 0.03
-
-  twist_bounds: [-6.0, 1.0]        
+  twist_bounds: [-6.0, 1.0]
   twist_init: -2.5
 
   sweep_deg: 5.0

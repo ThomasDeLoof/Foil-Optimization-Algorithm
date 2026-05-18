@@ -2,45 +2,87 @@
 
 <img width="878" height="570" alt="Foil_Cp" src="https://github.com/user-attachments/assets/98c37e5a-8283-4a17-9957-002c9ed82771" />
 
-## Description
+## What this does
 
-This project focuses on the generation and optimization of hydrofoil profiles. The core objective is to find the mathematical optimum for a complete foil assembly (main wing, fuselage, mast, and stabilizer) using multidisciplinary design and numerical optimization.
+The project looks for the geometry of a complete foil — main wing, fuselage, mast, stabilizer — that minimizes cruise drag for a given pilot weight and speed, under a stack of constraints: lift equals weight at cruise and takeoff, pitching moment balanced, structural stress below carbon limits, no cavitation, static margin in a sensible range. Hydrodynamics are handled by AeroSandBox with seawater as the working fluid. Everything lives in `src/`.
 
----
-## First parametric Approach
-The first script relies on numerical optimization (IPOPT), and the hydrodynamic calculations were made with the AeroSandBox library (used within a "water atomsphere"). To provide a first intuitive model, I implemented the following:
-* **NACA Integration:** Standard NACA profiles as a stable geometric anchor.
-* **Custom Reflex Control:** Local trailing-edge deformation for pitch moment control ($M_{total} \approx 0$).
-* **Integrated Drag Analysis:** Included mast and fuselage drag to refine system-wide pitching moments.
-* **Static Margin Management:** Iterative convergence achieved an acceptable theoretical static margin of ~30% for the wing case, which acted as a natural stability trade-off for longitudinal trim given the chosen fuselage length.
-
-### Limitations of this approach
-The initial script focused on a heavily constrained parametric sweep. While it successfully generated some stable geometries, real-world scaling and deeper physical testing revealed major mathematical and structural flaws in this approach:
-* **Over-Constraining:**
-The solver was heavily boxed into tightly restricted parameter margins. The optimizer constantly fought against rigid geometric boundaries, acting as "cliffs" in the mathematical landscape. Because the boundaries were too tight, the local gradient-based solver (`IPOPT`) frequently got stuck in local minima or completely failed to converge, requiring tedious, manual "initial guess" fine-tuning.
-* **Non viable outputs:**
-When certain geometric bounds were relaxed to help convergence, the V1 framework created "laboratory monsters." For example too high aspect ratios, stabilizers with high positive lift, etc.
-These results made me think about what was missed by the solver : mainly it didn't take into account any **structural strenght constraints** and minimum carbon thickness and other **manufacturing constraints**.
-* **Ignored Hydrodynamic Reality:**
-V1 evaluated global aerodynamic coefficients but completely missed localized pressure gradients and was very light on stalling constraints. For NACA profiles, I don't think that it is a big issue, but it will surely be when considering free morphing profiles in V2. I learned that even at amateur freeride cruising speeds (20 knots), minor surface imperfections or aggressive cambers create sharp local velocity peaks that can generate **extrados cavitation**, causing immediate flow ventilation, extreme sibilance, and dynamic stalling long before reaching 45 knots.
+Three approaches have been tried in sequence. The current one is **V3**.
 
 ---
 
-## Multidisciplinary Design approach 
-To solve the previous issues, a complete architectural overhaul is underway for Version 2. The design philosophy shifts from a purely aerodynamic parametric tool to a true **Multidisciplinary Design Optimization (MDO)** framework built on the following pillars:
-* **Quasi-Free Kulfan (CST) Parametrization:** Replacing rigid NACA profiles with Kulfan curves for root and tip sections to unlock highly innovative, high-performance shapes (e.g., precise rooftop pressure distributions and optimized reflexed cambers).
-* **Low-Cost "Fast Fail" Geometric Filters:** A pre-computation script will instantly filter out self-intersecting profiles, negative thicknesses, or un-manufacturable trailing edges ($<1\text{ mm}$) before they ever reach the fluid solver, saving days of computational overhead.
-* **True Structural Constraints (Bending Moment & Inertia):** V2 integrates a classical beam-theory mechanics model. The solver will compute the section modulus and area moment of inertia ($I_{xx}$) along the span. If the maximum material stress ($\sigma_{max}$) exceeds the structural limits of standard high-modulus carbon/epoxy composite ($400\text{--}500\text{ MPa}$), the individual is penalized. This will naturally force the optimizer to lower the Aspect Ratio to realistic values ($8\text{--}12$) and maintain structural thickness where it matters.
-* **Local Fluid Safeguards (Non-Stalling & Cavitation Prevention):** Implementation of local Reynolds number monitoring and a critical cavitation limit boundary:
-  $$Cp_{min} \ge -\sigma_{cavitation}$$
-  This forces the algorithm to eliminate aggressive local pressure peaks, yielding modern, smooth-ventilation profiles with set-back master couples.
-* **Global Evolutionary Solvers:** Transitioning from local gradient methods to global genetic algorithms (such as Differential Evolution or `NSGA-II`). This smoothens the mathematical landscape, accepting temporarily sub-optimal intermediate steps to ensure robust, dependable convergence toward realistic, highly stable hydrofoils.
+## V1 — parametric NACA with IPOPT
+
+The first script (`optParametriqueV1.py`) ran a structured sweep over NACA camber, thickness and sweep, with IPOPT handling the trim. It produced coherent wingfoil-class geometries but had a few persistent issues:
+
+* The solver was boxed into tight parameter bounds. Because IPOPT is local and gradient-based, it hit these bounds constantly and either got stuck or refused to converge without manual tuning of the initial guess.
+* When I loosened the bounds to help convergence, the optimizer drifted into "laboratory" designs — aspect ratios above 15, stabilizers producing positive lift, walls thinner than 1 mm — because nothing in the cost function captured structural strength or manufacturing limits.
+* The aerodynamic check was global (one CL, one CD per evaluation). At freeride cruising speed (~10 m/s) the surface pressure peaks needed for cavitation analysis weren't computed, so nothing prevented the solver from picking airfoils that would ventilate in real water.
+
+V1 was the right starting point to learn the problem, but its workflow scaled poorly.
 
 ---
 
-## V1 Example Output (Freeride Baseline)
+## V2 — Kulfan section + structural model
 
-Below is an example of a validated design generated by the V1 script for a *Wingfoil freeride* configuration prior to structural correction:
+The follow-up (`optMultidisciplinary.py`) moves to a Kulfan / CST parametrization of the airfoil itself rather than locking it to NACA. A handful of early-stage geometric filters reject self-intersecting profiles or trailing edges below 1 mm before the fluid solver sees them. A bending-moment + section-modulus check at the root forces realistic carbon thicknesses, and cavitation is treated as a hard constraint via `Cp_min ≥ −σ_cav`. The global solver is Differential Evolution, which copes much better than IPOPT with the messier landscape introduced by free airfoils.
+
+V2 works, but giving the airfoil that much freedom makes the search costly and noisy. It became clear that the section itself is not where the biggest wins are at this design fidelity — the planform and the trim are.
+
+---
+
+## V3 — current state
+
+V3 keeps the physics from V2 and goes the other way on the airfoil question. The section is **fixed per scenario** (a NACA chosen for each discipline), and the optimizer is free to choose the **planform** — span, root chord, tip chord — along with the trim variables: CG position, root incidence, washout, stab incidence, alpha at cruise, alpha at takeoff, fuselage length. Ten decision variables in total.
+
+### How the geometry is built
+
+The wing chord follows a pure ellipse, `c(r) = c_tip + (c_root − c_tip)·√(1 − r²)`, with the quarter-chord swept via a power law (`r^1.5`) plus a smoothstep "tip kick" applied only over the outer 15%. The kick amount is computed from the current chord shrinkage, so the saumon stays clearly behind the previous section whatever the dimensions the optimizer settles on. Without it, the tip section visually "tucks" forward of the penultimate section, which doesn't look like any industry foil. The stab uses the same construction with its own (smaller) kick.
+
+Reference dimensions for the wingfoil scenario are taken from the AXIS BSC 890 (1290 cm², AR 6.43, 170 mm max chord) and the AXIS Skinny 365/55 stab (168 cm², AR 8.06). Tip chords (53 mm and 13 mm) were back-solved so that the elliptic distribution reproduces the manufacturer's areas to within 0.1%. Other scenarios — windsurf, downwind, pumping — have their own per-scenario stab dimensions and wing airfoil in `scenarios.yaml`. Profile choice is per-scenario where it matters (NACA 2410 for wingfoil, 2412 for windsurf/downwind, 2415 for pumping); the stab profile is the same NACA 0012 everywhere and lives in `parameters.yaml`.
+
+The airfoil loader is wrapped in a small fallback because AeroSandBox's NACA generator is incomplete — most 6-series profiles (`naca63412`, `naca64412`, …) silently return empty coordinates, while the modified 6A variants like `naca64a410` work fine, as do Eppler 836-838 and the SD7037 family. The loader checks for valid coordinates and falls back to a sensible NACA 4-digit if the requested profile isn't usable.
+
+### Aerodynamics
+
+The DE evaluation uses AeroBuildup — fast (≈ 0.5 s per call), good enough to run a 250-individual population over 60 generations in roughly ten minutes. AeroBuildup is purely additive and misses the wing → stab downwash interaction. We accept that during the search loop. The final design is checked with LiftingLine in a separate script (`refine_3d.py`), which captures induced drag and downwash properly. On the same geometry, switching from AeroBuildup to LiftingLine typically lowers the estimated drag by 30-40% and raises L/D from around 17 to around 24. What matters is that the relative ranking of candidate designs is preserved between the two — so the cheap solver picks the right shape and the expensive one gives the right numbers.
+
+The objective is multi-point: `D_cruise + 0.3 · D_takeoff`. The takeoff weight (0.3) discourages designs that need huge induced drag to lift off, without overpowering the cruise term.
+
+### Static margin
+
+This is the part that took the longest to figure out. The classical aircraft static margin doesn't really apply to a wingfoil. The dominant mass of the system — pilot + board + rig, roughly 84 kg out of 85 — sits on the board above the mast, which is well behind the wing in chord units. Compute SM about that *physical* CG and you get something around −80 %: the foil is statically unstable in the classical sense, exactly like a modern fighter, and the pilot stabilises it dynamically with their stance.
+
+The SM that's actually optimized in V3 is a proxy. It assumes the CG sits at some fraction of the wing's mean chord (controlled by `cg_ratio`) and captures the geometric relationship between the wing AC, the stab contribution and that assumed CG position. The range we constrain it to in `scenarios.yaml` (40-75 % for wingfoil, 50-80 % for windsurf, etc.) reflects what's achievable under that proxy. Calling it 60 % doesn't mean the real-life foil is 60 % stable — it means the proxy puts it there.
+
+The downwash factor `de_da` used in the analytical formula is calibrated empirically against VLM by `calibrate_de_da.py`. The textbook `4 / (AR + 2) ≈ 0.5` value is borrowed from aircraft and is off by a factor of five for a hydrofoil, because `l_t / c̄ ≈ 5` means the downwash has mostly dissipated by the time it reaches the stab. The calibrated linear fit `de_da(fl) ≈ 0.54·fl − 0.43` brings the analytical SM to within 2 percentage points of the VLM measurement across the whole fuselage-length range. Re-run the calibration script if you change the wing or stab dimensions.
+
+### Structure
+
+The root cross-section is modeled as a hollow elliptic carbon shell, 1.5 mm thick by default (`wing.skin_thickness` in `parameters.yaml`), with a polystyrene core whose contribution is neglected. Bending uses the difference of two elliptic second moments (outer minus inner ellipse); torsion uses Bredt's formula for thin-walled closed sections, which is the right one for a shell — much more punishing than the solid-ellipse `J` it replaced. Von Mises at the root is then checked against 300 MPa, a conservative figure for high-modulus carbon/epoxy.
+
+### Scripts
+
+* `src/V3.py` — main optimizer (Differential Evolution + L-BFGS-B polish), reports, XFLR5 XML export, plus a `.dat` for every airfoil used so XFLR5 picks them up automatically when you open the plane file
+* `src/calibrate_de_da.py` — one-shot empirical calibration of `de_da` against VLM, prints the slope and intercept to paste into V3
+* `src/refine_3d.py` — runs LiftingLine on the DE solution and does a small Nelder-Mead refinement of the trim angles while keeping the planform fixed
+
+The intended workflow:
+
+```bash
+python src/V3.py                  # ~10 min — full DE on planform + trim
+python src/calibrate_de_da.py     # ~5 s — re-run if wing/stab dimensions change
+python src/refine_3d.py           # ~2 min — 3D refinement of trim
+```
+
+### Scenarios
+
+Four scenarios share the same code path: `wingfoil`, `windsurf`, `downwind`, `pumping`. Each one sets its own velocities, mass of the rig, area target range, allowable CG range, achievable SM range, wing airfoil, and stab dimensions. Switching scenario is a one-line edit (`case:` in `parameters.yaml`). The wingfoil case is the most extensively tuned and the one to start from.
+
+---
+
+## V1 example output (kept for reference)
+
+For comparison, here is a wingfoil-freeride design generated by V1 before the structural correction was added:
 
 | **WING GEOMETRY** | - |
 | :--- | :--- |
@@ -65,7 +107,7 @@ Below is an example of a validated design generated by the V1 script for a *Wing
 | CL Cruising | 0.147 |
 | CD Cruising | 0.0125 |
 | **STABILITY & BALANCE** | - |
-| Static Margin | 63.36%|
+| Static Margin | 63.36% |
 | CG Position | 54.1% |
 | Stability Force | -10.00 N |
 | Residual Moment | 1.0030 N·m |
@@ -75,26 +117,33 @@ Below is an example of a validated design generated by the V1 script for a *Wing
 
 <img width="828" height="852" alt="Capture d’écran 2026-05-05 à 08 23 06" src="https://github.com/user-attachments/assets/781b081f-e242-48f6-9e1c-2e7f3f9fbcc5" />
 
+Run V3 yourself to get the equivalent table for any of the four scenarios — it lands in `outputs/<scenario>_v3param_<timestamp>/fiche_technique.md`.
+
 ---
 
-## Neglected physical aspects of this project
-I quickly realized that it would be too complex to consider certain physical aspects in this optimization. Therefore, I intentionally ignored :
-* yaw and roll stability,
-* the variation of immersion depth and the air ventilation (free surface effect) that frequently occurs in agitated waters
-* neglected elasticity (mast flexion and wing twisting), as well as the interference drag caused by the interaction of different foil parts
-* steady-state regime (which does not account for unsteady cases like pumping).
+## What I knowingly ignored
 
-This assumptions could make my code completly non realistic for certain cases.
+A few things I left out, in full awareness that they would matter for a really finished design:
 
-## Final Thoughts
-I am well aware that this code is not guaranteed to output a ready-to-build hydrofoil. However, building this from scratch was an attempt to tackle a massive engineering problem, one that entire companies spend years working on, and it forced me to dive deep into hydrodynamics and parametric optimization, I have learned an lot in the process.
+* Yaw and roll stability — only longitudinal (pitch) trim is enforced.
+* Variation of immersion depth and air ventilation (free-surface effects) in choppy water.
+* Elastic deformation of the mast and twist of the wing under load, plus interference drag where the wing, fuselage and mast meet.
+* Unsteady regimes (pumping cycle in particular). Everything is computed as if the foil were in steady cruise.
+
+Any of these can make the output unrealistic for a specific use case. Pumping especially is poorly captured because the whole physics is unsteady, even though the geometry it produces is still useful as a starting point.
+
+---
+
+## Final thoughts
+
+This isn't going to spit out a ready-to-mould foil. It's a parametric exploration tool with enough structural and hydrodynamic discipline that the outputs land in the right neighbourhood. Building it from scratch was an attempt to take seriously a problem that whole companies spend years on — it forced me into the hydrodynamics, the structural side, the numerical optimization, the way real CG and stability behave on a hydrofoil, and a lot of fiddly engineering judgement that no textbook lays out clearly. The code reflects that learning curve.
 
 ---
 
 ## Acknowledgements
 
-This work was carried out within the ISAE Supaéro Foil club. I would like to acknowledge fellow club member Gaspard Bougnoux for his initial work, which provided a valuable baseline for comparison and pushed me to explore alternative geometric solutions to address specific physical performance constraints.
+This work was carried out within the ISAE Supaéro Foil club. Thanks to fellow club member Gaspard Bougnoux for his initial work, which gave me something to push against and forced me to keep looking for alternative solutions when the obvious ones didn't work.
 
 ## License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+Distributed under the MIT License. See `LICENSE` for details.
