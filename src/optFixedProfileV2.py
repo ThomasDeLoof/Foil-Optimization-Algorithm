@@ -139,29 +139,36 @@ except Exception:
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. VECTEUR D'OPTIMISATION
 # ─────────────────────────────────────────────────────────────────────────────
-# x = [fuselage_length, cg_ratio, wing_setting_angle, twist,
-#      s_twist, alpha_to, alpha_cruise,
-#      wing_span, wing_root_chord, wing_tip_chord]
+# NB : α_cruise N'EST PAS variable d'opti — il est dérivé en solve interne
+# (L = WEIGHT) à chaque évaluation, ce qui garantit l'équilibre vertical.
+# x = [fuselage_length, cg_ratio, wing_setting_angle, twist, s_twist, alpha_to,
+#      wing_span, wing_root_chord, wing_tip_chord,
+#      stab_span, stab_root_chord, stab_tip_chord]
 
 BOUNDS = [
-    tuple(phy["fuselage"]["length_bounds"]),                           # 0 fuselage_length (m)
-    tuple(cfg["cg_range"]),                                            # 1 cg_ratio (-)
-    tuple(phy["wing"].get("calage_bounds",  [-2.0, 5.0])),             # 2 wing_setting_angle (°)
-    tuple(phy["wing"].get("washout_bounds", [-5.0, 0.5])),             # 3 twist (°)
-    tuple(phy["stab"]["twist_bounds"]),                                # 4 s_twist (°)
-    tuple(phy["alpha"]["bounds"]),                                     # 5 alpha_to (°)
-    tuple(phy["alpha"]["bounds"]),                                     # 6 alpha_cruise (°)
-    tuple(phy["wing"]["span_bounds"]),                                 # 7 wing_span (m)
-    tuple(phy["wing"]["root_chord_bounds"]),                           # 8 wing_root_chord (m)
-    tuple(phy["wing"]["tip_chord_bounds"]),                            # 9 wing_tip_chord (m)
+    tuple(phy["fuselage"]["length_bounds"]),                  #  0 fuselage_length (m)
+    tuple(cfg["cg_range"]),                                   #  1 cg_ratio (-)
+    tuple(phy["wing"].get("calage_bounds",  [-2.0, 5.0])),    #  2 wing_setting_angle (°)
+    tuple(phy["wing"].get("washout_bounds", [-5.0, 0.5])),    #  3 twist (°)
+    tuple(phy["stab"]["twist_bounds"]),                       #  4 s_twist (°)
+    tuple(phy["alpha"]["bounds"]),                            #  5 alpha_to (°)
+    tuple(phy["wing"]["span_bounds"]),                        #  6 wing_span (m)
+    tuple(phy["wing"]["root_chord_bounds"]),                  #  7 wing_root_chord (m)
+    tuple(phy["wing"]["tip_chord_bounds"]),                   #  8 wing_tip_chord (m)
+    tuple(phy["stab"]["span_bounds"]),                        #  9 stab_span (m)
+    tuple(phy["stab"]["root_chord_bounds"]),                  # 10 stab_root_chord (m)
+    tuple(phy["stab"]["tip_chord_bounds"]),                   # 11 stab_tip_chord (m)
 ]
 N_VAR = len(BOUNDS)
 LB    = np.array([b[0] for b in BOUNDS])
 UB    = np.array([b[1] for b in BOUNDS])
 
+STAB_AR_RANGE = tuple(phy["stab"].get("aspect_ratio_range", [4.0, 14.0]))
+
 
 def decode(x: np.ndarray) -> dict:
-    """Découpe le vecteur DE → dictionnaire de paramètres macroscopiques."""
+    """Découpe le vecteur DE → dictionnaire de paramètres macroscopiques.
+    NB : 'alpha_cruise' est ajouté dynamiquement par solve_trim_alpha (objective)."""
     return {
         "fuselage_length":    float(x[0]),
         "cg_ratio":           float(x[1]),
@@ -169,19 +176,24 @@ def decode(x: np.ndarray) -> dict:
         "twist":              float(x[3]),
         "s_twist":            float(x[4]),
         "alpha_to":           float(x[5]),
-        "alpha_cruise":       float(x[6]),
-        "wing_span":          float(x[7]),
-        "wing_root_chord":    float(x[8]),
-        "wing_tip_chord":     float(x[9]),
+        "wing_span":          float(x[6]),
+        "wing_root_chord":    float(x[7]),
+        "wing_tip_chord":     float(x[8]),
+        "stab_span":          float(x[9]),
+        "stab_root_chord":    float(x[10]),
+        "stab_tip_chord":     float(x[11]),
     }
 
 
-# Warm-start : milieu des bornes, mais on initialise la planform sur la
-# géométrie de référence du scénario (AXIS BSC 890 pour wingfoil).
+# Warm-start : milieu des bornes, planform aile + stab initialisés sur la
+# géométrie de référence du scénario.
 X_REF = np.array([(b[0] + b[1]) / 2 for b in BOUNDS])
-X_REF[7] = WING_SPAN
-X_REF[8] = WING_ROOT_CHORD
-X_REF[9] = WING_TIP_CHORD
+X_REF[6]  = WING_SPAN
+X_REF[7]  = WING_ROOT_CHORD
+X_REF[8]  = WING_TIP_CHORD
+X_REF[9]  = STAB_SPAN
+X_REF[10] = STAB_ROOT_CHORD
+X_REF[11] = STAB_TIP_CHORD
 X_REF = np.clip(X_REF, LB, UB)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -285,31 +297,34 @@ def build_airplane(p: dict) -> tuple:
     mast_obj = asb.Wing(name="Mast", symmetric=False, xsecs=mast_xsecs)
 
     # ── Stabilisateur ────────────────────────────────────────────────────────
-    # Stab figé (companion typique du foil). Tip kick adaptatif via helper.
-    # kick_start abaissé à 0.65 car N_STAB plus faible (sinon wobble visible).
+    # Stab MAINTENANT OPTIMISÉ : span/cordes lus depuis p (3 nouvelles vars).
+    # Même mécanique de tip kick adaptatif.
+    stab_span_p = p["stab_span"]
+    stab_root_p = p["stab_root_chord"]
+    stab_tip_p  = min(p["stab_tip_chord"], stab_root_p * 0.95)  # safety tip<root
     x_stab_root = x_fuselage_start + p["fuselage_length"] - STAB_FUSE_OFFSET
     sweep_power_s    = 1.5
     tip_kick_start_s = 0.65
-    tip_kick_amount_s = _adaptive_tip_kick(STAB_ROOT_CHORD, STAB_TIP_CHORD,
-                                           STAB_SPAN, STAB_SWEEP_DEG, N_STAB,
+    tip_kick_amount_s = _adaptive_tip_kick(stab_root_p, stab_tip_p,
+                                           stab_span_p, STAB_SWEEP_DEG, N_STAB,
                                            sweep_power_s, tip_kick_start_s)
     stab_xsecs = []
     for i in range(N_STAB):
         r = i / (N_STAB - 1)
 
-        c_s = STAB_TIP_CHORD + (STAB_ROOT_CHORD - STAB_TIP_CHORD) \
+        c_s = stab_tip_p + (stab_root_p - stab_tip_p) \
               * np.sqrt(max(1 - r ** 2, 0))
 
         kick_s = 0.0
         if r > tip_kick_start_s:
             s = (r - tip_kick_start_s) / (1.0 - tip_kick_start_s)
             kick_s = tip_kick_amount_s * s * s * (3.0 - 2.0 * s)
-        x_qc_s = (r ** sweep_power_s) * STAB_SPAN / 2 * np.tan(np.radians(STAB_SWEEP_DEG)) + kick_s
-        x_le_s = x_qc_s + 0.25 * (STAB_ROOT_CHORD - c_s)
-        z_s    = (r ** 1.5 * STAB_SPAN / 2) * np.tan(np.radians(STAB_DIHEDRAL_DEG))
+        x_qc_s = (r ** sweep_power_s) * stab_span_p / 2 * np.tan(np.radians(STAB_SWEEP_DEG)) + kick_s
+        x_le_s = x_qc_s + 0.25 * (stab_root_p - c_s)
+        z_s    = (r ** 1.5 * stab_span_p / 2) * np.tan(np.radians(STAB_DIHEDRAL_DEG))
 
         stab_xsecs.append(asb.WingXSec(
-            xyz_le=[x_stab_root + x_le_s, r * STAB_SPAN / 2, z_s],
+            xyz_le=[x_stab_root + x_le_s, r * stab_span_p / 2, z_s],
             chord=c_s,
             twist=p["s_twist"],
             airfoil=STAB_AIRFOIL,
@@ -504,11 +519,35 @@ def soft_penalty(val: float, lo: float, hi: float, ref: float) -> float:
     return 0.0
 
 
+def trim_alpha_for_lift(airplane, target_L: float,
+                        alpha_lo: float = 0.0, alpha_hi: float = 3.0) -> tuple:
+    """
+    Trouve alpha_cruise tel que L(alpha) ≈ target_L par interpolation linéaire
+    (L est quasi-linéaire en α dans le régime AeroBuildup pré-stall).
+
+    Retourne (alpha_trim, aero_at_trim). 3 appels AeroBuildup → ~×1.5 sur eval.
+    """
+    op_lo = asb.OperatingPoint(velocity=cfg["v_cruise"], alpha=alpha_lo, atmosphere=atmosphere)
+    op_hi = asb.OperatingPoint(velocity=cfg["v_cruise"], alpha=alpha_hi, atmosphere=atmosphere)
+    aero_lo = asb.AeroBuildup(airplane, op_lo).run()
+    aero_hi = asb.AeroBuildup(airplane, op_hi).run()
+    L_lo, L_hi = float(aero_lo["L"]), float(aero_hi["L"])
+    if abs(L_hi - L_lo) < 1.0:
+        return float(alpha_lo), aero_lo  # plateau (rare, foil saturé)
+    alpha_trim = alpha_lo + (target_L - L_lo) / (L_hi - L_lo) * (alpha_hi - alpha_lo)
+    # Clamp aux bornes physiques (α_cruise raisonnable)
+    alpha_trim = max(-3.0, min(12.0, alpha_trim))
+    op_trim = asb.OperatingPoint(velocity=cfg["v_cruise"], alpha=alpha_trim, atmosphere=atmosphere)
+    aero_trim = asb.AeroBuildup(airplane, op_trim).run()
+    return float(alpha_trim), aero_trim
+
+
 def objective(x: np.ndarray) -> float:
     """
-    Minimise la traînée totale (D_aero + D_mât) sous contraintes douce
+    Minimise la traînée totale (D_aero + D_mât) sous contraintes douces.
+    α_cruise est DÉRIVÉ (solveur trim L=WEIGHT), pas une variable d'opti.
     """
-    x = np.clip(x, LB, UB)  # robuste aux solvers polish hors bornes
+    x = np.clip(x, LB, UB)
     p = decode(x)
 
     try:
@@ -516,18 +555,16 @@ def objective(x: np.ndarray) -> float:
     except Exception:
         return 1e6  # exception structurelle AeroSandBox
 
-    # ── Évaluation aérodynamique — point de croisière ───────────────────────
+    # ── Croisière : α_cruise solvé en interne pour avoir L = WEIGHT ─────────
     try:
-        op_c   = asb.OperatingPoint(velocity=cfg["v_cruise"],
-                                    alpha=p["alpha_cruise"],
-                                    atmosphere=atmosphere)
-        aero_c = asb.AeroBuildup(airplane, op_c).run()
+        alpha_trim, aero_c = trim_alpha_for_lift(airplane, target_L=WEIGHT)
+        p["alpha_cruise"] = alpha_trim
         L  = float(aero_c["L"])
         D  = float(aero_c["D"])
         Cm = float(aero_c["Cm"])
         CL = float(aero_c["CL"])
     except Exception:
-        return 1e6  # exception matrice AeroBuildup
+        return 1e6
 
     # ── Évaluation aérodynamique — point de décollage ───────────────────────
     try:
@@ -546,8 +583,12 @@ def objective(x: np.ndarray) -> float:
     S_stab  = stab.area()
     penalty = 0.0
 
-    # Portance croisière ≥ poids
-    penalty += K1 * soft_penalty(L, WEIGHT, np.inf, ref=WEIGHT)
+    # Portance croisière = poids (ÉGALITÉ).
+    # La croisière est un état stationnaire → L doit valoir W, pas seulement
+    # le dépasser. Si L > W le foil "monte" dans l'eau (pas d'équilibre vertical)
+    # et le drag calculé ici n'est PAS le drag à l'opération réelle.
+    # Soft penalty quadratique centrée sur W (lo = hi = WEIGHT).
+    penalty += K1 * soft_penalty(L, WEIGHT, WEIGHT, ref=WEIGHT)
 
     # Portance décollage : L_to ≥ poids + CL_to ≤ marge × CL_max_to.
     # La marge encode la "forgiveness" du foil au décollage (différenciation
@@ -589,8 +630,6 @@ def objective(x: np.ndarray) -> float:
 
     # Contrainte structurelle : von Mises emplanture (coque carbone)
     # Contrainte fatigue : pic dynamique vs limite admissible (≠ rupture statique).
-    # Pour foils race AR>15 ce critère devient actif, alors qu'il était trivialement
-    # satisfait quand on comparait à σ_ultimate (~300 MPa) sur charge statique seule.
     sigma_vm_peak = von_mises_root(p["wing_root_chord"], p["wing_span"],
                                     load_factor=LOAD_PEAK_FACTOR)
     penalty += K1 * soft_penalty(sigma_vm_peak, 0.0, SIGMA_ADMISSIBLE, ref=SIGMA_ADMISSIBLE)
@@ -604,12 +643,10 @@ def objective(x: np.ndarray) -> float:
     Cp_min = -(1.2 * abs(CL) + 3.0 * WING_THICKNESS_REL)
     penalty += K3 * soft_penalty(Cp_min, -SIGMA_CAV, np.inf, ref=SIGMA_CAV)
 
-    # NB : plus de pénalité explicite sur la surface aile. La taille est
-    # désormais entièrement déterminée par la physique :
-    #   - takeoff_cl_margin × CL_max     → borne basse de S (forgiveness)
-    #   - σ_fatigue                      → borne haute d'AR (cap structurel)
-    #   - min(D_total)                   → borne haute de S (friction drag)
-    #   - L_cruise = poids               → couple S et α_cruise
+    # Garde-fou sur l'AR du stab (évite stabs trop carrés ou trop fins).
+    AR_stab_phys = (p["stab_span"] ** 2) / max(S_stab, 1e-6)
+    ar_lo, ar_hi = STAB_AR_RANGE
+    penalty += K2 * soft_penalty(AR_stab_phys, ar_lo, ar_hi, ref=0.5*(ar_lo+ar_hi))
 
     # Objectif multi-point : D_cruise + W_TO × D_takeoff
     W_TAKEOFF = 0.3
@@ -651,24 +688,29 @@ def _de_callback(_xk: np.ndarray, convergence: float) -> bool:
 
 def _heuristic_starts() -> list:
     """
-    Quelques individus heuristiques pour amorcer la population DE.
-    Couvrent typiquement les zones où un foil bien dimensionné tombe :
-        - α_cruise modéré (2-3°), α_to plus chargé (6-8°)
-        - calage 0°, washout léger (~-1°), s_twist négatif (-2°)
-        - CG vers l'avant du milieu (équilibre stable)
+    Individus heuristiques DE — couvrent fuselage moyen + diverses planforms
+    aile/stab + 2 CG (avancé/centré). α_cruise n'est plus une variable.
     """
     seeds = []
     fl_mid = 0.5 * (BOUNDS[0][0] + BOUNDS[0][1])
-    # Planform : warm-start sur la référence scénario + une variante plus petite
-    planforms = [
-        (WING_SPAN, WING_ROOT_CHORD, WING_TIP_CHORD),                    # référence
-        (0.85 * WING_SPAN, 0.85 * WING_ROOT_CHORD, 0.85 * WING_TIP_CHORD),  # 15% plus petit
+    # Planform aile : référence + variante 15 % plus petite
+    wing_planforms = [
+        (WING_SPAN, WING_ROOT_CHORD, WING_TIP_CHORD),
+        (0.85 * WING_SPAN, 0.85 * WING_ROOT_CHORD, 0.85 * WING_TIP_CHORD),
+    ]
+    # Stab : référence + variante un peu plus grosse (autorité tangage)
+    stab_planforms = [
+        (STAB_SPAN, STAB_ROOT_CHORD, STAB_TIP_CHORD),
+        (1.10 * STAB_SPAN, 1.10 * STAB_ROOT_CHORD, 1.10 * STAB_TIP_CHORD),
     ]
     for cg in (0.35 * (BOUNDS[1][0] + BOUNDS[1][1]),
                0.60 * (BOUNDS[1][0] + BOUNDS[1][1])):
-        for ac in (2.0, 4.0):
-            for sp, rc, tc in planforms:
-                seeds.append(np.array([fl_mid, cg, 0.0, -1.0, -2.0, 7.0, ac, sp, rc, tc]))
+        for w_sp, w_rc, w_tc in wing_planforms:
+            for s_sp, s_rc, s_tc in stab_planforms:
+                # x = [fl, cg, calage, twist, s_twist, α_to,
+                #      w_span, w_root, w_tip, s_span, s_root, s_tip]
+                seeds.append(np.array([fl_mid, cg, 0.0, -1.0, -2.0, 7.0,
+                                       w_sp, w_rc, w_tc, s_sp, s_rc, s_tc]))
     return [np.clip(s, LB, UB) for s in seeds]
 
 
@@ -794,9 +836,9 @@ def full_report(x: np.ndarray) -> None:
     rho = atmosphere.density()
     mu  = atmosphere.dynamic_viscosity()
 
-    # Croisière
-    op_c   = asb.OperatingPoint(velocity=cfg["v_cruise"], alpha=p["alpha_cruise"], atmosphere=atmosphere)
-    aero_c = asb.AeroBuildup(airplane, op_c).run()
+    # Croisière : α_cruise dérivé par trim L = WEIGHT (cohérent avec objective).
+    alpha_trim, aero_c = trim_alpha_for_lift(airplane, target_L=WEIGHT)
+    p["alpha_cruise"] = alpha_trim
     L, D   = float(aero_c["L"]), float(aero_c["D"])
     Cm, CL = float(aero_c["Cm"]), float(aero_c["CL"])
     D_total = D + D_MAST
@@ -889,10 +931,10 @@ def full_report(x: np.ndarray) -> None:
     print(f"  Von Mises root   : pic dyn (×{LOAD_PEAK_FACTOR:.1f}g) {sigma_vm/1e6:.1f} MPa  "
           f"| statique {sigma_vm_static/1e6:.1f} MPa  "
           f"| admissible fatigue {SIGMA_ADMISSIBLE/1e6:.0f} MPa  (σ_ult {SIGMA_ULTIMATE/1e6:.0f})")
-    print(f"  σ_v cavitation   : {SIGMA_CAV:.2f}")
 
     # ── Récap des contraintes ───────────────────────────────────────────────
     Cp_min   = -(1.2 * abs(CL) + 3.0 * WING_THICKNESS_REL)
+    print(f"  σ_v cavitation   : {SIGMA_CAV:.2f} / Cp_min   : {Cp_min:.2f} ")
     M_tol    = 0.05 * WEIGHT * mean_chord
     omega_ok = np.isfinite(omega_n) and (f_lo <= omega_n <= f_hi)
     checks = [
@@ -988,8 +1030,9 @@ def full_report(x: np.ndarray) -> None:
 
     # ── Rapport des bornes saturées ─────────────────────────────────────────
     VAR_NAMES = ["fuselage_length", "cg_ratio", "wing_setting_angle", "twist",
-                 "s_twist", "alpha_to", "alpha_cruise",
-                 "wing_span", "wing_root_chord", "wing_tip_chord"]
+                 "s_twist", "alpha_to",
+                 "wing_span", "wing_root_chord", "wing_tip_chord",
+                 "stab_span", "stab_root_chord", "stab_tip_chord"]
     TOL = 0.02  # 2% de la largeur de bornes
     saturated = []
     for i, (lo, hi) in enumerate(BOUNDS):

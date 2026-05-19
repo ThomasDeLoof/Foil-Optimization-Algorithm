@@ -15,8 +15,6 @@ wingfoil:
   v_cruise: 9.5             # m/s — croisière confortable (~17.5 kts)
 
   # Marge décollage : fraction de CL_max utilisée au takeoff.
-  # 0.55 = freeride forgiving (foil ~2× plus grand que le min théorique race).
-  # Remplace area_target_range — encode la "marge" plutôt que des bornes d'aire.
   takeoff_cl_margin: 0.55
 
   stab_area_range:
@@ -48,7 +46,9 @@ wingfoil:
 
   # Foil de référence : AXIS BSC 890 (1290 cm², AR 6.43, max chord 170 mm)
   # Stab compagnon : AXIS Skinny 365/55 (168 cm², AR 8.06)
-  wing_airfoil:         "sd7062"   # ou naca4412 — profil cambré modéré
+  wing_airfoil:         "sd7062"   # Profil hydrofoil cambré ~4 %. Génère un Cm₀ marqué
+                                    # mais maintenant équilibrable car le stab est libre
+                                    # de grossir/s'allonger (3 vars d'opti supplémentaires).
   wing_span_init:       0.890
   wing_root_chord_init: 0.170
   wing_tip_chord_init:  0.053

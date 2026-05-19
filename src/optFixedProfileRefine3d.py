@@ -55,14 +55,12 @@ def aero_3d(airplane: asb.Airplane, alpha: float) -> dict:
 
 def compare_2d_3d(x: np.ndarray, label: str = "") -> dict:
     """Affiche D_2D (AeroBuildup) vs D_3D (LiftingLine) sur le même X.
-    Renvoie les valeurs 3D pour usage ultérieur."""
+    α_cruise est dérivé par trim L=WEIGHT (AeroBuildup), même valeur pour les deux."""
     p = V2.decode(np.clip(x, V2.LB, V2.UB))
     airplane, *_ = V2.build_airplane(p)
 
-    op = asb.OperatingPoint(velocity=V2.cfg["v_cruise"], alpha=p["alpha_cruise"],
-                            atmosphere=V2.atmosphere)
-    ab = asb.AeroBuildup(airplane, op).run()
-    ll = aero_3d(airplane, p["alpha_cruise"])
+    alpha_trim, ab = V2.trim_alpha_for_lift(airplane, target_L=V2.WEIGHT)
+    ll = aero_3d(airplane, alpha_trim)
 
     L_2D, D_2D = float(ab["L"]), float(ab["D"])
     D_2D += V2.D_MAST
@@ -81,11 +79,28 @@ def compare_2d_3d(x: np.ndarray, label: str = "") -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. Refinement 3D : trim angles (planform fixée, bornes appliquées)
 # ─────────────────────────────────────────────────────────────────────────────
-TRIM_INDICES = [1, 2, 3, 4, 5, 6]    # cg_ratio, calage, twist, s_twist, α_to, α_cruise
+# Indices à raffiner : tout sauf α_cruise (dérivé) et planform (figée post-DE).
+# x = [fl, cg, calage, twist, s_twist, α_to, w_span, w_root, w_tip, s_span, s_root, s_tip]
+# On raffine cg + 3 angles + α_to.
+TRIM_INDICES = [1, 2, 3, 4, 5]   # cg_ratio, calage, twist, s_twist, α_to
+
+
+def _trim_alpha_3d(airplane, target_L: float,
+                   alpha_lo: float = 0.0, alpha_hi: float = 3.0) -> tuple:
+    """Équivalent LiftingLine de V2.trim_alpha_for_lift (3 appels LL)."""
+    aero_lo = aero_3d(airplane, alpha_lo)
+    aero_hi = aero_3d(airplane, alpha_hi)
+    L_lo, L_hi = aero_lo["L"], aero_hi["L"]
+    if abs(L_hi - L_lo) < 1.0:
+        return float(alpha_lo), aero_lo
+    alpha_trim = alpha_lo + (target_L - L_lo) / (L_hi - L_lo) * (alpha_hi - alpha_lo)
+    alpha_trim = max(-3.0, min(12.0, alpha_trim))
+    aero_trim = aero_3d(airplane, alpha_trim)
+    return float(alpha_trim), aero_trim
 
 
 def _objective_3d(x_trim: np.ndarray, x_template: np.ndarray) -> float:
-    """Coût = D_3D + pénalités. Identique à V2.objective mais avec LiftingLine."""
+    """Coût LiftingLine + pénalités. α_cruise dérivé par trim L=WEIGHT en LL."""
     x = x_template.copy()
     x[TRIM_INDICES] = x_trim
     x = np.clip(x, V2.LB, V2.UB)
@@ -93,7 +108,9 @@ def _objective_3d(x_trim: np.ndarray, x_template: np.ndarray) -> float:
 
     try:
         airplane, wing, stab, mc, _, _ = V2.build_airplane(p)
-        ll = aero_3d(airplane, p["alpha_cruise"])
+        # α_cruise solvé en LiftingLine
+        alpha_trim, ll = _trim_alpha_3d(airplane, target_L=V2.WEIGHT)
+        p["alpha_cruise"] = alpha_trim
         L, D, Cm = ll["L"], ll["D"], ll["Cm"]
     except Exception:
         return 1e6
@@ -108,9 +125,10 @@ def _objective_3d(x_trim: np.ndarray, x_template: np.ndarray) -> float:
 
     D_total = D + V2.D_MAST
     pen = 0.0
-    pen += V2.K1 * V2.soft_penalty(L,    V2.WEIGHT, np.inf,        ref=V2.WEIGHT)
-    pen += V2.K1 * V2.soft_penalty(L_to, V2.WEIGHT, np.inf,        ref=V2.WEIGHT)
-    pen += V2.K1 * V2.soft_penalty(CL_to, -np.inf, V2.CL_MAX_TO,   ref=V2.CL_MAX_TO)
+    # L_cruise est déjà ≈ WEIGHT par construction (trim), pénalité résiduelle faible
+    pen += V2.K1 * V2.soft_penalty(L,    V2.WEIGHT, V2.WEIGHT,      ref=V2.WEIGHT)
+    pen += V2.K1 * V2.soft_penalty(L_to, V2.WEIGHT, np.inf,         ref=V2.WEIGHT)
+    pen += V2.K1 * V2.soft_penalty(CL_to, -np.inf, V2.CL_MAX_TO,    ref=V2.CL_MAX_TO)
 
     X_cg = p["cg_ratio"] * mc
     M_total = (Cm * V2.q_cruise * wing.area() * mc
@@ -177,8 +195,9 @@ def export_refined(x: np.ndarray) -> str:
     p = V2.decode(x)
     airplane, wing, stab, mc, mast_obj, fuselage_obj = V2.build_airplane(p)
 
-    # --- Aéro : LL pour croisière (3D), AB pour décollage ---
-    ll_c = aero_3d(airplane, p["alpha_cruise"])
+    # --- Aéro : LL pour croisière (3D, α dérivé), AB pour décollage ---
+    alpha_trim, ll_c = _trim_alpha_3d(airplane, target_L=V2.WEIGHT)
+    p["alpha_cruise"] = alpha_trim
     L, D, Cm, CL = ll_c["L"], ll_c["D"], ll_c["Cm"], ll_c["CL"]
     D_total = D + V2.D_MAST
 

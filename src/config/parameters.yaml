@@ -54,7 +54,7 @@ Kulfan:
 # -----------------------------------------------------------------------------
 wing:
   # Bornes larges — l'optimiseur choisit librement dans cette plage
-  span_bounds: [0.75, 1.40]         # 75 cm (race) à 140 cm (pumping/débutant)
+  span_bounds: [0.75, 1.30]         # 75 cm (race) à 130 cm (pumping/débutant)
   span_init: 0.89                   # Warm-start AXIS BSC 890 (calibré)
 
   root_chord_bounds: [0.10, 0.30]   # 10 cm (trop mince) à 30 cm (très épais)
@@ -81,7 +81,7 @@ wing:
   skin_thickness: 0.0015            # 1.5 mm — peau carbone typique sur aile freeride
 
   # Limites mécaniques — dimensionnement fatigue.
-  ultimate_stress_mpa: 400          # σ_ult design carbone-époxy stratifié
+  ultimate_stress_mpa: 400          # σ_ult design carbone-époxy stratifié (+ imperfections)
   fatigue_allowable_ratio: 0.40     # Fraction utilisable en cyclique (>10⁶ cycles)
                                     # → σ_admissible = 400 × 0.40 = 160 MPa
   load_peak_factor: 2.5             # Pic dynamique / charge statique cruise (n_g équiv.)
@@ -120,9 +120,13 @@ mast:
 # STABILISATEUR
 # -----------------------------------------------------------------------------
 stab:
-  # NB : les dimensions du stab (span/cordes) sont définies PAR SCÉNARIO dans
-  # scenarios.yaml (elles dépendent du foil principal)
+  # NB : valeurs INITIALES du stab (warm-start) → scenarios.yaml par discipline.
+  # BORNES ci-dessous = globales, gardées étroites pour éviter stabs aberrants.
   airfoil: "naca0012"               # Symétrique standard pour stab calé
+
+  span_bounds:       [0.25, 0.50]   # Stab freeride : 25-50 cm typique
+  root_chord_bounds: [0.04, 0.12]   # 4-12 cm root
+  tip_chord_bounds:  [0.005, 0.04]  # 5-40 mm tip (pour AR raisonnable)
 
   twist_bounds: [-6.0, 1.0]
   twist_init: -2.5
@@ -131,3 +135,6 @@ stab:
   dihedral_deg: 3.0
   n_sections: 5
   fuselage_offset: 0.10             # Recul du BA stab par rapport à l'arrière du fuselage (m)
+
+  # Soft constraint pour éviter les stabs aberrants (AR trop bas/haut)
+  aspect_ratio_range: [5.0, 12.0]   # AR de stab industriel : 6-10 typique
