@@ -88,26 +88,3 @@ def calibrate(ctx: dict, verbose: bool = True) -> tuple:
         print(f"    INTERCEPT = {intercept:+.3f}")
 
     return slope, intercept
-
-
-def main() -> None:
-    """
-    Standalone : importe V2 (qui calibre déjà au chargement) et affiche
-    les valeurs obtenues. Aucun calcul redondant.
-    """
-    import optFixedProfileV2 as V2          # OK : V2 ne nous importe pas au top
-    print(f"\n{'='*65}")
-    print(f"  Calibration de_da — scénario : {V2.CASE.upper()}")
-    print(f"  Aile : {V2.WING_AIRFOIL_NAME}  b={V2.WING_SPAN*100:.0f} cm  "
-          f"c_R/T={V2.WING_ROOT_CHORD*1000:.0f}/{V2.WING_TIP_CHORD*1000:.0f} mm")
-    print(f"  Stab : {V2.STAB_AIRFOIL_NAME}  b={V2.STAB_SPAN*100:.0f} cm  "
-          f"c_R/T={V2.STAB_ROOT_CHORD*1000:.0f}/{V2.STAB_TIP_CHORD*1000:.0f} mm")
-    print(f"{'='*65}")
-    print(f"\n  V2 a calibré au chargement : ")
-    print(f"      DE_DA_SLOPE     = {V2.DE_DA_SLOPE:+.3f}")
-    print(f"      DE_DA_INTERCEPT = {V2.DE_DA_INTERCEPT:+.3f}")
-    print(f"{'='*65}\n")
-
-
-if __name__ == "__main__":
-    main()
