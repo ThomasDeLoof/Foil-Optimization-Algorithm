@@ -315,7 +315,7 @@ def export_refined(x: np.ndarray) -> str:
         f"| SM/l_t (scale-invariant) | {pd['SM_lt']*100:.1f}% | typique aviation 10-25% |",
         f"| Gap NP-CG (absolu) | {pd['SM_abs']*1000:.1f} mm | — |",
         f"| SM/c̄ (legacy, chord-normalisé) | {sm_chord_str} | — |",
-        f"| Moment résiduel | {M_total:.3f} N·m | < {0.05*V2.WEIGHT*mc:.2f} N·m |",
+        f"| Moment résiduel | {M_total:.3f} N·m | < {V2.M_TOL_TRIM:.1f} N·m (trim pilote) |",
         f"| Volume de queue V_h | {v_h:.3f} | [{V2.cfg['vh_range'][0]:.2f}–{V2.cfg['vh_range'][1]:.2f}] |",
         f"| Von Mises root (pic ×{V2.LOAD_PEAK_FACTOR:.1f}g) | {sigma_vm/1e6:.1f} MPa | < {V2.SIGMA_ADMISSIBLE/1e6:.0f} MPa (fatigue) |",
         f"| Von Mises root (statique 1g) | {sigma_vm_static/1e6:.1f} MPa | < {V2.SIGMA_ULTIMATE/1e6:.0f} MPa (rupture) |",

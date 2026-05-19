@@ -371,6 +371,12 @@ I_YY_SYSTEM = _M_TOTAL * _R_GYR ** 2
 # dans scenarios.yaml). Un seul scope — pas de subdivision par niveau pilote.
 PILOT_FREQ_LO, PILOT_FREQ_HI = cfg["pilotability_freq"]
 
+# Tolérance sur le moment résiduel — le pilote compense via sa stance, donc
+# la grandeur de référence n'est PAS la corde aile (héritage aviation aberrant
+# pour un hydrofoil) mais la capacité de trim pilote, exprimée en N·m.
+# Cf. parameters.yaml#pilot.trim_moment_tolerance_N_m.
+M_TOL_TRIM = phy["pilot"].get("trim_moment_tolerance_N_m", 25.0)
+
 
 def get_pilot_freq_range() -> tuple:
     """Retourne (f_lo, f_hi) — la cible ω_n du scénario courant."""
@@ -525,14 +531,13 @@ def objective(x: np.ndarray) -> float:
     # (en α<-1° on tombe en zone non-linéaire négative pour NACA modérément cambré, Cm(α) devient erratique
     penalty += K2 * soft_penalty(p["alpha_cruise"], -1.0, np.inf, ref=2.0)
 
-    # Équilibre de tangage en croisière (tolérance ±5 % de M_ref)
+    # Équilibre de tangage — tolérance = capacité de trim du pilote (stance),
+    # cf. M_TOL_TRIM dans parameters.yaml. Pas de tolérance aviation aberrante.
     X_cg    = p["cg_ratio"] * mean_chord
     M_wing  = Cm * q_cruise * S_wing * mean_chord
     M_rig = rig_mass * 9.81 * (-(X_cg - x_mast))
     M_total = M_wing + M_MAST + M_rig
-    M_ref   = WEIGHT * mean_chord
-    tol_M   = 0.05 * M_ref
-    penalty += K1 * soft_penalty(M_total, -tol_M, +tol_M, ref=M_ref)
+    penalty += K1 * soft_penalty(M_total, -M_TOL_TRIM, +M_TOL_TRIM, ref=M_TOL_TRIM)
 
     # Pilotabilité : Cm_α dérivé DIRECTEMENT du bracket AeroBuildup (coût zéro,
     # ~3 % près de VLM — vs 15-20 % erreur pour la formule analytique).
@@ -805,7 +810,7 @@ def full_report(x: np.ndarray) -> None:
     # ── Métriques dérivées pour l'affichage ─────────────────────────────────
     f_lo, f_hi   = get_pilot_freq_range()
     Cp_min       = -(1.2 * abs(CL) + 3.0 * WING_THICKNESS_REL)
-    M_tol        = 0.05 * WEIGHT * mean_chord
+    M_tol        = M_TOL_TRIM
     cl_to_target = cfg["takeoff_cl_margin"] * CL_MAX_TO
     Re_root      = rho * cfg["v_cruise"] * p["wing_root_chord"] / mu
     Re_tip       = rho * cfg["v_cruise"] * p["wing_tip_chord"]  / mu
@@ -879,7 +884,7 @@ def full_report(x: np.ndarray) -> None:
         ("CL_to ≤ CL_max (stall)",           CL_to <= CL_MAX_TO + 1e-3, f"{CL_to:.3f} / {CL_MAX_TO}"),
         (f"CL_to ≤ {cfg['takeoff_cl_margin']:.0%} CL_max ({CASE})",
                                               CL_to <= cl_to_target + 1e-3, f"{CL_to:.3f} / {cl_to_target:.3f}"),
-        ("|M_total| ≤ 5 % M_ref",            abs(M_total) <= M_tol, f"{M_total:+.2f} vs ±{M_tol:.2f} N·m"),
+        ("|M_total| ≤ trim authority pilote",abs(M_total) <= M_tol, f"{M_total:+.2f} vs ±{M_tol:.2f} N·m"),
         ("ω_n dans cible freeride",          omega_ok, f"{omega_n:.2f} vs [{f_lo:.1f}-{f_hi:.1f}] Hz"),
         ("Cavitation OK",                    Cp_min >= -SIGMA_CAV, ""),
         ("σ_VM pic ≤ σ_fatigue",             sigma_vm <= SIGMA_ADMISSIBLE, f"{sigma_vm/1e6:.0f} / {SIGMA_ADMISSIBLE/1e6:.0f} MPa"),
@@ -1055,7 +1060,7 @@ def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
         f"| Gap NP-CG (absolu) | {pd['SM_abs']*1000:.1f} mm | — |",
         f"| SM/c̄ (legacy, aircraft-style) | {pd['SM_chord']*100:.1f}% | — (chord-normalisé) |",
         f"| CG | {p['cg_ratio']*100:.1f}% c̄ ({X_cg*100:.1f} cm) | [{cfg['cg_range'][0]*100:.0f}–{cfg['cg_range'][1]*100:.0f}]% |",
-        f"| Moment résiduel | {M_total:.3f} N·m | < {0.05*WEIGHT*mean_chord:.2f} N·m |",
+        f"| Moment résiduel | {M_total:.3f} N·m | < {M_TOL_TRIM:.1f} N·m (trim authority pilote) |",
         f"| Force stab (info) | {F_stab:.1f} N | — |",
         f"| Volume de queue | {v_h:.3f} | [{cfg['vh_range'][0]:.2f}–{cfg['vh_range'][1]:.2f}] |",
         f"| Von Mises root (pic ×{LOAD_PEAK_FACTOR:.1f}g) | {sigma_vm/1e6:.1f} MPa | < {SIGMA_ADMISSIBLE/1e6:.0f} MPa (fatigue) |",
@@ -1073,8 +1078,8 @@ def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
         warn.append(f"⚠️ Portance décollage insuffisante : {L_to:.1f} / {WEIGHT:.1f} N")
     if CL_to > CL_MAX_TO:
         warn.append(f"⚠️ CL_to {CL_to:.2f} > CL_max {CL_MAX_TO}")
-    if abs(M_total) > 0.05 * WEIGHT * mean_chord:
-        warn.append(f"⚠️ Moment résiduel {M_total:.2f} N·m hors tolérance 5%")
+    if abs(M_total) > M_TOL_TRIM:
+        warn.append(f"⚠️ Moment résiduel {M_total:.2f} N·m > trim authority pilote ±{M_TOL_TRIM:.1f} N·m")
     if sigma_vm > SIGMA_ADMISSIBLE:
         warn.append(f"⚠️ Von Mises pic dyn {sigma_vm/1e6:.0f} MPa > σ_fatigue {SIGMA_ADMISSIBLE/1e6:.0f} MPa "
                     f"— ratio {sigma_vm/SIGMA_ADMISSIBLE:.2f}, foil sous-dimensionné en fatigue")
