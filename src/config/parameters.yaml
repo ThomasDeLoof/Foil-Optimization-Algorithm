@@ -12,17 +12,13 @@ case: "wingfoil"
 
 
 # -----------------------------------------------------------------------------
-# MASSES FIXES
+# PILOTABILITÉ
 # -----------------------------------------------------------------------------
 pilot:
   mass_kg: 75
   gyration_radius_m: 0.30   # Rayon de giration du système pilote+board+rig
                             # (debout sur planche → ~30 cm). Utilisé pour I_yy.
 
-
-# -----------------------------------------------------------------------------
-# PILOTABILITÉ — niveau choisi pour ce run
-# -----------------------------------------------------------------------------
 # Options : "débutant", "intermédiaire", "avancé"
 pilotability: "intermédiaire"
 
@@ -72,7 +68,7 @@ wing:
   # Géométrie fixe
   sweep_deg: 15.0                   # Flèche modérée — anti-algues
   anhedral_deg: 4.0                 # Stabilité en roulis sans trop pénaliser la portance
-  n_sections: 20
+  n_sections: 10
 
   # Limite physique décollage
   cl_max_takeoff: 1.3               # Conservateur pour un NACA cambré (réel ~1.4 max)
@@ -133,7 +129,7 @@ stab:
 
   sweep_deg: 5.0
   dihedral_deg: 3.0
-  n_sections: 10
+  n_sections: 6
   fuselage_offset: 0.10             # Recul du BA stab par rapport à l'arrière du fuselage (m)
 
   # Soft constraint pour éviter les stabs aberrants (AR trop bas/haut)

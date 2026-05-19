@@ -406,7 +406,9 @@ def neutral_point_ratio(wing: asb.Wing, stab: asb.Wing,
     return (X_ac_w / mean_chord) + V_H * (CL_a_s / CL_a_w) * (1.0 - de_da)
 
 
-# Calibration VLM 
+# Calibration VLM — avec cache fichier pour éviter recalibration N fois en // workers
+import json
+import hashlib
 from calibrate_de_da import calibrate as _calibrate_de_da
 
 _CALIBRATION_CTX = {
@@ -430,7 +432,40 @@ _CALIBRATION_CTX = {
         "stab_tip_chord":     STAB_TIP_CHORD,
     },
 }
-DE_DA_SLOPE, DE_DA_INTERCEPT = _calibrate_de_da(_CALIBRATION_CTX, verbose=True)
+
+# Hash key : tout ce qui influe sur le résultat de calibration.
+_cache_payload = {
+    "case":             CASE,
+    "wing_airfoil":     WING_AIRFOIL_NAME,
+    "stab_airfoil":     STAB_AIRFOIL_NAME,
+    "v_cruise":         cfg["v_cruise"],
+    "x_fuselage_start": x_fuselage_start,
+    "stab_fuse_offset": STAB_FUSE_OFFSET,
+    "fuselage_bounds":  list(phy["fuselage"]["length_bounds"]),
+    "init_p_neutral":   _CALIBRATION_CTX["init_p_neutral"],
+}
+_CACHE_KEY  = hashlib.md5(json.dumps(_cache_payload, sort_keys=True).encode()).hexdigest()
+_CACHE_PATH = ROOT.parent / "outputs" / ".de_da_cache.json"
+
+def _load_or_calibrate():
+    if _CACHE_PATH.exists():
+        try:
+            data = json.loads(_CACHE_PATH.read_text())
+            if data.get("key") == _CACHE_KEY:
+                return float(data["slope"]), float(data["intercept"])
+        except Exception:
+            pass
+    slope, intercept = _calibrate_de_da(_CALIBRATION_CTX, verbose=True)
+    try:
+        _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _CACHE_PATH.write_text(json.dumps(
+            {"key": _CACHE_KEY, "slope": slope, "intercept": intercept}, indent=2
+        ))
+    except Exception:
+        pass
+    return slope, intercept
+
+DE_DA_SLOPE, DE_DA_INTERCEPT = _load_or_calibrate()
 
 
 # ── Pitch dynamics — métriques de stabilité physiquement parlantes ───────────
@@ -723,8 +758,8 @@ def run_multistart(n_starts: int = 1) -> np.ndarray:
     print(f"  MULTI-START DE — {n_starts} runs | {CASE.upper()}")
     print(f"  Profil aile : {WING_AIRFOIL_NAME}    Profil stab : {STAB_AIRFOIL_NAME}")
     print(f"  Init aile (warm-start) : b={WING_SPAN*100:.0f} cm  "
-          f"c_R/T={WING_ROOT_CHORD*1000:.0f}/{WING_TIP_CHORD*1000:.0f} mm — librement optimisé")
-    print(f"  Stab figé : b={STAB_SPAN*100:.0f} cm  "
+          f"c_R/T={WING_ROOT_CHORD*1000:.0f}/{WING_TIP_CHORD*1000:.0f} mm ")
+    print(f"  Init stab : b={STAB_SPAN*100:.0f} cm  "
           f"c_R/T={STAB_ROOT_CHORD*1000:.0f}/{STAB_TIP_CHORD*1000:.0f} mm")
     print(f"  N_VAR={N_VAR}  pop={DE_PARAMS['popsize']*N_VAR}  gen={DE_PARAMS['maxiter']}")
     print(f"{'='*65}")
@@ -807,9 +842,8 @@ def run_multistart(n_starts: int = 1) -> np.ndarray:
 def next_output_dir(suffix: str = "", out_root: str = "outputs") -> str:
     """
     Construit le prochain dossier de sortie au format :
-        outputs/{case}_{level}_{YYYYMMDD}_{NN}[_{suffix}]/
-    NN s'incrémente automatiquement par jour. Le suffix optionnel sert à
-    distinguer un export "refined3d" standalone d'un run V2 standard.
+        outputs/{case}_{level}_{YYYYMMDD}_{NN}/
+    NN s'incrémente automatiquement par jour
     """
     today = dt.datetime.now().strftime("%Y%m%d")
     prefix = f"{CASE}_{PILOT_LEVEL}_{today}"

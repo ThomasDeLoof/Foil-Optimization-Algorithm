@@ -74,7 +74,7 @@ def calibrate(ctx: dict, verbose: bool = True) -> tuple:
     """
     fl_lo, fl_hi = ctx["fuselage_length_bounds"]
     if verbose:
-        print(f"  Calibration de_da via VLM (4 appels, ~3s)...", flush=True)
+        print(f"  Calibration de_da via VLM (4 appels, ~5s)...", flush=True)
 
     d_lo, _, _ = _measure_de_da_at(ctx, fl_lo)
     d_hi, _, _ = _measure_de_da_at(ctx, fl_hi)
