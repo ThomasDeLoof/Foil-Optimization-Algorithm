@@ -202,7 +202,7 @@ X_REF = np.clip(X_REF, LB, UB)
 
 def _adaptive_tip_kick(c_root: float, c_tip: float, span: float,
                        sweep_deg_local: float, N: int,
-                       sweep_power: float = 1.1,
+                       sweep_power: float = 1.5,
                        kick_start: float = 0.85,
                        target_push: float = 0.020) -> float:
     """

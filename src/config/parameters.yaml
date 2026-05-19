@@ -110,7 +110,7 @@ mast:
   x_position: 0.25                  # 25 cm derrière le BA aile (position standard)
   cd: 0.01                          # Cd cohérent avec profil mince à Re ~1.5e6
                       
-  n_sections: 5
+  n_sections: 4
 
 # -----------------------------------------------------------------------------
 # STABILISATEUR
@@ -129,7 +129,7 @@ stab:
 
   sweep_deg: 5.0
   dihedral_deg: 3.0
-  n_sections: 6
+  n_sections: 5
   fuselage_offset: 0.10             # Recul du BA stab par rapport à l'arrière du fuselage (m)
 
   # Soft constraint pour éviter les stabs aberrants (AR trop bas/haut)

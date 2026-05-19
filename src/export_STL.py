@@ -5,7 +5,8 @@
 # de sections élevé + profils repanelés haute résolution (continuité visuelle/CFD),
 # et écrit 4 fichiers STL binaires dans `<run_dir>/stl/`.
 #
-#   python3 export_3d.py outputs/wingfoil_intermédiaire_20260519_04 --n-wing 200 --chordwise 250
+# Usage:
+#   python3 src/export_STL.py outputs/file_name
 # =================================================================================
 
 import sys
