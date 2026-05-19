@@ -38,6 +38,11 @@ wingfoil:
 
   cg_ratio_init: 0.38
 
+  fuselage_length_bounds:   # Bras stab — wingfoil freeride
+    - 0.65                  #   borne basse : moment cambré SD7062 demande de l'arm
+    - 0.95
+  fuselage_length_init: 0.75
+
   vh_range:                 # Relâché : 0.85 saturait à l'opti précédente
     - 0.30
     - 1.10
@@ -88,6 +93,11 @@ windsurf:
 
   cg_ratio_init: 0.30
 
+  fuselage_length_bounds:   # Bras stab — windsurf race-freeride
+    - 0.70                  #   long pour stabilité directionnelle haute vitesse
+    - 1.00
+  fuselage_length_init: 0.85
+
   vh_range:                 # Fuselage long nécessaire pour la stabilité directionnelle
     - 0.40
     - 1.00
@@ -136,6 +146,11 @@ downwind:
     - 0.95
 
   cg_ratio_init: 0.23
+
+  fuselage_length_bounds:   # Bras stab — downwind freeride
+    - 0.60                  #   intermédiaire entre pumping et wingfoil
+    - 0.90
+  fuselage_length_init: 0.75
 
   vh_range:                 # Fuselage court pour la maniabilité en virage
     - 0.25
@@ -187,6 +202,11 @@ pumping:
     - 0.95
 
   cg_ratio_init: 0.25
+
+  fuselage_length_bounds:   # Bras stab — pumping freeride
+    - 0.45                  #   court pour réactivité / agilité en pumping
+    - 0.75
+  fuselage_length_init: 0.60
 
   vh_range:                 # Fuselage très court pour l'efficacité du pompage
     - 0.20

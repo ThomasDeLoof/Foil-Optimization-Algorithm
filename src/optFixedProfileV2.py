@@ -65,12 +65,12 @@ STAB_DIHEDRAL_DEG  = phy["stab"].get("dihedral_deg", 3.0)
 STAB_FUSE_OFFSET   = phy["stab"].get("fuselage_offset", 0.10)
 
 # Sanity check géométrique : le BA stab doit rester à l'intérieur du fuselage
-_fuse_len_min = phy["fuselage"]["length_bounds"][0]
+_fuse_len_min = cfg["fuselage_length_bounds"][0]
 if STAB_FUSE_OFFSET > _fuse_len_min:
     raise ValueError(
         f"stab.fuselage_offset ({STAB_FUSE_OFFSET*100:.1f} cm) > "
-        f"fuselage.length_bounds[0] ({_fuse_len_min*100:.1f} cm) "
-        "— le BA stab serait avant le nez fuselage."
+        f"fuselage_length_bounds[0] ({_fuse_len_min*100:.1f} cm) — "
+        f"le BA stab serait avant le nez fuselage."
     )
 
 # ── Mât (constants) ───────────────────────────────────────────────────────────
@@ -146,7 +146,7 @@ except Exception:
 #      stab_span, stab_root_chord, stab_tip_chord]
 
 BOUNDS = [
-    tuple(phy["fuselage"]["length_bounds"]),                  #  0 fuselage_length (m)
+    tuple(cfg["fuselage_length_bounds"]),                     #  0 fuselage_length (m)
     tuple(cfg["cg_range"]),                                   #  1 cg_ratio (-)
     tuple(phy["wing"].get("calage_bounds", [-2.0, 5.0])),     #  2 wing_setting_angle (°)
     tuple(phy["wing"].get("twist_bounds",  [-5.0, 0.5])),     #  3 twist (°)  (corrigé: key YAML)
@@ -204,12 +204,15 @@ def build_airplane(p: dict) -> tuple:
     """
     Assemble l'aile, le fuselage, le mât et le stabilisateur AeroSandBox.
 
-    Géométrie : loi de corde elliptique + sweep en r^sweep_power + anhédral
-    (aile) ou dièdre (stab) en r^p_z. Le saumon est juste l'extrémité de ces
-    lois — pas de logique spéciale qui rallonge ou déforme la dernière
-    section.
+    Géométrie ancrée sur le BORD DE FUITE :
+        x_te(r) = x_te_root + r^sweep_power × (span/2 × tan(sweep_deg))
+        x_le(r) = x_te(r) − c(r)
+        c(r)   = corde elliptique
+    Le TE est donc monotone par construction, peu importe la loi de corde
+    (l'elliptique a dc/dr → −∞ au saumon, ce qui faisait remonter le TE en
+    fin de span avec l'ancien parametrage QC-ancré).
     """
-    SWEEP_POWER_W = 1.5   # courbure du BA aile (1=linéaire, >1=courbé)
+    SWEEP_POWER_W = 1.5   # courbure du TE aile (1=linéaire, >1=courbé)
     SWEEP_POWER_S = 1.5   # idem stab
 
     # ── Aile principale ──────────────────────────────────────────────────────
@@ -223,8 +226,8 @@ def build_airplane(p: dict) -> tuple:
         r = i / (N_WING - 1)
 
         c_dist = tip_w + (root_w - tip_w) * np.sqrt(max(1 - r ** 2, 0))
-        x_qc   = (r ** SWEEP_POWER_W) * K_sweep_w
-        x_le   = x_qc + 0.25 * (root_w - c_dist)
+        x_te   = root_w + (r ** SWEEP_POWER_W) * K_sweep_w
+        x_le   = x_te - c_dist
 
         z_pos  = -((r ** 2) * span_w / 2) * np.tan(np.radians(wing_anhedral_deg))
 
@@ -276,8 +279,8 @@ def build_airplane(p: dict) -> tuple:
         r = i / (N_STAB - 1)
 
         c_s    = stab_tip_p + (stab_root_p - stab_tip_p) * np.sqrt(max(1 - r ** 2, 0))
-        x_qc_s = (r ** SWEEP_POWER_S) * K_sweep_s
-        x_le_s = x_qc_s + 0.25 * (stab_root_p - c_s)
+        x_te_s = stab_root_p + (r ** SWEEP_POWER_S) * K_sweep_s
+        x_le_s = x_te_s - c_s
         z_s    = (r ** 1.5 * stab_span_p / 2) * np.tan(np.radians(STAB_DIHEDRAL_DEG))
 
         stab_xsecs.append(asb.WingXSec(
@@ -369,10 +372,33 @@ def neutral_point_ratio(wing: asb.Wing, stab: asb.Wing,
     return (X_ac_w / mean_chord) + V_H * (CL_a_s / CL_a_w) * (1.0 - de_da)
 
 
-# Calibration VLM — avec cache fichier pour éviter recalibration N fois en // workers
+# Calibration VLM — avec cache fichier (auto-invalidation sur tout changement
+# de paramètre ou de géométrie). Pas besoin de purger le cache à la main.
 import json
 import hashlib
+import inspect
 from calibrate_de_da import calibrate as _calibrate_de_da
+
+
+def _mid(bounds):
+    """Milieu d'un intervalle (utilisé pour les valeurs de calibration neutres)."""
+    return 0.5 * (bounds[0] + bounds[1])
+
+# Valeurs "neutres" pour la mesure VLM, dérivées des bornes/inits du scénario
+# courant — pas de constantes hard-codées qui s'écarteraient de la réalité.
+_NEUTRAL = {
+    "cg_ratio":           cfg["cg_ratio_init"],
+    "wing_setting_angle": _mid(phy["wing"]["calage_bounds"]),
+    "twist":              phy["wing"].get("twist_init", _mid(phy["wing"]["twist_bounds"])),
+    "s_twist":            phy["stab"].get("twist_init", _mid(phy["stab"]["twist_bounds"])),
+    "alpha_to":           _mid(phy["alpha"]["bounds"]),
+    "wing_span":          WING_SPAN,
+    "wing_root_chord":    WING_ROOT_CHORD,
+    "wing_tip_chord":     WING_TIP_CHORD,
+    "stab_span":          STAB_SPAN,
+    "stab_root_chord":    STAB_ROOT_CHORD,
+    "stab_tip_chord":     STAB_TIP_CHORD,
+}
 
 _CALIBRATION_CTX = {
     "build_airplane":          build_airplane,
@@ -380,32 +406,29 @@ _CALIBRATION_CTX = {
     "v_cruise":                cfg["v_cruise"],
     "x_fuselage_start":        x_fuselage_start,
     "stab_fuse_offset":        STAB_FUSE_OFFSET,
-    "fuselage_length_bounds":  phy["fuselage"]["length_bounds"],
-    "init_p_neutral": {
-        "cg_ratio":           0.40,
-        "wing_setting_angle": 0.0,
-        "twist":              -1.0,
-        "s_twist":            -2.0,
-        "alpha_to":            7.0,
-        "wing_span":          WING_SPAN,
-        "wing_root_chord":    WING_ROOT_CHORD,
-        "wing_tip_chord":     WING_TIP_CHORD,
-        "stab_span":          STAB_SPAN,
-        "stab_root_chord":    STAB_ROOT_CHORD,
-        "stab_tip_chord":     STAB_TIP_CHORD,
-    },
+    "fuselage_length_bounds":  cfg["fuselage_length_bounds"],
+    "init_p_neutral":          _NEUTRAL,
 }
 
-# Hash key : tout ce qui influe sur le résultat de calibration.
+# Hash key — tout ce qui influe sur le résultat de calibration :
+#   - identité du scénario, profils, vitesse
+#   - dimensions warm-start (wing, stab) + bornes fuselage
+#   - source du build_airplane (toute évolution de la géométrie invalide
+#     automatiquement le cache — plus besoin de rm sur le fichier)
+_build_source_hash = hashlib.md5(
+    inspect.getsource(build_airplane).encode()
+).hexdigest()[:12]
+
 _cache_payload = {
-    "case":             CASE,
-    "wing_airfoil":     WING_AIRFOIL_NAME,
-    "stab_airfoil":     STAB_AIRFOIL_NAME,
-    "v_cruise":         cfg["v_cruise"],
-    "x_fuselage_start": x_fuselage_start,
-    "stab_fuse_offset": STAB_FUSE_OFFSET,
-    "fuselage_bounds":  list(phy["fuselage"]["length_bounds"]),
-    "init_p_neutral":   _CALIBRATION_CTX["init_p_neutral"],
+    "case":              CASE,
+    "wing_airfoil":      WING_AIRFOIL_NAME,
+    "stab_airfoil":      STAB_AIRFOIL_NAME,
+    "v_cruise":          cfg["v_cruise"],
+    "x_fuselage_start":  x_fuselage_start,
+    "stab_fuse_offset":  STAB_FUSE_OFFSET,
+    "fuselage_bounds":   list(cfg["fuselage_length_bounds"]),
+    "neutral":           _NEUTRAL,
+    "build_source_hash": _build_source_hash,
 }
 _CACHE_KEY  = hashlib.md5(json.dumps(_cache_payload, sort_keys=True).encode()).hexdigest()
 _CACHE_PATH = ROOT.parent / "outputs" / ".de_da_cache.json"
@@ -667,7 +690,7 @@ def objective(x: np.ndarray) -> float:
 
 DE_PARAMS = {
     "strategy":      "best1bin",
-    "maxiter":       100,
+    "maxiter":       40,
     "popsize":       25,           # 25 × 7 = 175 individus — suffisant pour 7 var
     "tol":           1e-4,
     "atol":          1e-3,

@@ -86,12 +86,9 @@ wing:
 
 
 # -----------------------------------------------------------------------------
-# FUSELAGE
+# FUSELAGE (paramètres communs ; bornes & init de longueur dans scenarios.yaml)
 # -----------------------------------------------------------------------------
 fuselage:
-  length_bounds: [0.50, 0.95]       # 50 cm (très court/pumping) à 95 cm (long/windsurf).
-                                    # Borne basse abaissée : opti saturait à 55 cm.
-  length_init: 0.75
   diameter: 0.035                   # 35 mm diamètre standard tube carbone
   x_start: 0.10                     # Nez fuselage à 10 cm derrière le BA aile
   n_sections: 6
