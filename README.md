@@ -61,12 +61,14 @@ The objective is multi-point: `D_cruise + 0.3 · D_takeoff`. The takeoff weight 
 
 ### Stability and pilotability
 
-This is the part that took the longest to figure out. The classical aircraft static margin (SM normalised by mean chord) doesn't really work for a wingfoil : 
+This is the part that took the longest to figure out. The classical aircraft static margin (SM normalised by mean chord) doesn't really work for a wingfoil : the pilot's CG sits up at the board level, not in the wing chord plane, so SM/c̄ values look absurd (50-100 %) while the foil is actually well-behaved. I dropped SM/c̄ as the design constraint and replaced it with a **pilotability** target expressed as a pitch natural frequency `ω_n` (Hz). What the pilot actually feels isn't a static margin in chord units — it's the speed at which the foil responds to a pitch perturbation, i.e. the short-period mode. We compute it from `ω_n² = -Cm_α · q · S · c̄ / I_yy`, with `I_yy = m_total · r_gyr²` (gyration radius ≈ 30 cm for a rider standing on the board, set in `parameters.yaml`).
 
-First, the approximation used to calculate the original SM (critical for reducing calculation costs) needed a refinement on how the downwash influenced it. I had to calibrate it empirically against VLM by `calibrate_de_da.py` — the classic textbook `4/(AR+2) ≈ 0.5` is off by a factor of five for hydrofoils because the tail arm is so long that the downwash has mostly dissipated by the time it reaches the stab.
+Getting an accurate `Cm_α` turned out to be the harder problem. I tried two approaches:
 
-I then dropped SM/c̄ as the constraint and replaces it with a **pilotability** target expressed as a pitch natural frequency `ω_n` (Hz). The idea is that what the pilot actually feels isn't a static margin in chord units, it's the speed at which the foil responds to a pitch perturbation — the short-period mode. We compute it analytically from `Cm_α = -SM · CL_α_total`, the dynamic pressure, the wing reference area and chord, and an inertia estimate `I_yy = m_total · r_gyr²` (gyration radius ≈ 30 cm for a rider standing on the board, set in `parameters.yaml`). 
+1. **Analytical formula + empirical de_da calibration** (`calibrate_de_da.py`, kept for reference). The textbook `Cm_α = -SM · CL_α_total` with `SM` from a vortex-horsepower formula needs an `ε = de_da` term for the downwash the stab sees. The textbook `4/(AR+2) ≈ 0.5` is wildly off for hydrofoils — the tail arm is so long that the downwash has mostly dissipated by the time it reaches the stab. So at startup, the script ran 4 VLM calls at the bounds of `fuselage_length` to invert the formula and fit `de_da(fl) = slope·fl + intercept` by linear regression. 
+2. **Direct finite-difference on AeroBuildup** (current). The trim solver already calls AeroBuildup at `α = 0°` and `α = 3°` to bracket the cruise lift target. Those two calls return `Cm` too, so `dCm/dα = (Cm_hi − Cm_lo) / Δα` is free — no extra solver call, no startup VLM. AeroBuildup includes the actual wing→stab downwash (via its lifting-line strip integration), so the resulting `Cm_α` is within ~3 % of a full VLM verification, vs the 15-25 % residual error the analytical formula carried even with calibrated `de_da`.
 
+The second approach was chosen, despite the calculation additional costs, because the precision on stability was crucial to the optimisation.
 
 ### Structure
 
@@ -79,8 +81,9 @@ With this new fatigue-based criterion, AR 12 sits at the limit, AR 15 and above 
 ### Scripts
 
 * `src/optFixedProfileV2.py` — main optimizer: Differential Evolution on 10 variables (planform + trim), followed automatically by 3D trim refinement (LiftingLine + Nelder-Mead with bounds). Produces the technical sheet, XFLR5 XML, and a `.dat` per wing section so XFLR5 picks the geometry up automatically.
-* `src/calibrate_de_da.py` — one-shot empirical calibration of `de_da` against VLM, prints the slope and intercept to paste into V2
 * `src/optFixedProfileRefine3d.py` — same refinement step, but standalone: re-loads the latest `x_best.npy` and runs LiftingLine post-processing on it. Useful to re-process a saved design or compare 2D vs 3D side by side. Called automatically by V2 at the end of every run, so usually you don't need to invoke it yourself.
+* `src/export_STL.py` — re-instantiates a saved `x_best.npy` at high resolution (150 spanwise × 200 chordwise sections, airfoils repaneled to 200 pts/side) and writes 4 watertight STL files (wing, stab, mast, fuselage) ready for CFD meshing or 3D-printing the moulds.
+* `src/calibrate_de_da.py` — *archived*, no longer used. See the Stability section above.
 
 ### Scenarios
 

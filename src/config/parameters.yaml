@@ -119,7 +119,7 @@ stab:
 
   span_bounds:       [0.25, 0.50]   # Stab freeride : 25-50 cm typique
   root_chord_bounds: [0.04, 0.12]   # 4-12 cm root
-  tip_chord_ratio:   0.25           # tip = 0.25 × root
+  tip_chord_ratio:   0.4           # tip = ratio × root
 
   twist_bounds: [-6.0, 1.0]
   twist_init: -2.5

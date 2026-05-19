@@ -59,7 +59,7 @@ def compare_2d_3d(x: np.ndarray, label: str = "") -> dict:
     p = V2.decode(np.clip(x, V2.LB, V2.UB))
     airplane, *_ = V2.build_airplane(p)
 
-    alpha_trim, ab = V2.trim_alpha_for_lift(airplane, target_L=V2.WEIGHT)
+    alpha_trim, ab, _ = V2.trim_alpha_for_lift(airplane, target_L=V2.WEIGHT)
     ll = aero_3d(airplane, alpha_trim)
 
     L_2D, D_2D = float(ab["L"]), float(ab["D"])
@@ -87,16 +87,20 @@ TRIM_INDICES = [1, 2, 3, 4, 5]   # cg_ratio, calage, twist, s_twist, α_to
 
 def _trim_alpha_3d(airplane, target_L: float,
                    alpha_lo: float = 0.0, alpha_hi: float = 3.0) -> tuple:
-    """Équivalent LiftingLine de V2.trim_alpha_for_lift (3 appels LL)."""
+    """Équivalent LiftingLine de V2.trim_alpha_for_lift (3 appels LL).
+    Retourne (alpha_trim, aero_at_trim, bracket) — le bracket donne dCm/dα
+    pour pitch_dynamics_from_aero (coût zéro)."""
     aero_lo = aero_3d(airplane, alpha_lo)
     aero_hi = aero_3d(airplane, alpha_hi)
+    bracket = {"aero_lo": aero_lo, "aero_hi": aero_hi,
+               "alpha_lo": alpha_lo, "alpha_hi": alpha_hi}
     L_lo, L_hi = aero_lo["L"], aero_hi["L"]
     if abs(L_hi - L_lo) < 1.0:
-        return float(alpha_lo), aero_lo
+        return float(alpha_lo), aero_lo, bracket
     alpha_trim = alpha_lo + (target_L - L_lo) / (L_hi - L_lo) * (alpha_hi - alpha_lo)
     alpha_trim = max(-3.0, min(12.0, alpha_trim))
     aero_trim = aero_3d(airplane, alpha_trim)
-    return float(alpha_trim), aero_trim
+    return float(alpha_trim), aero_trim, bracket
 
 
 def _objective_3d(x_trim: np.ndarray, x_template: np.ndarray) -> float:
@@ -109,7 +113,7 @@ def _objective_3d(x_trim: np.ndarray, x_template: np.ndarray) -> float:
     try:
         airplane, wing, stab, mc, _, _ = V2.build_airplane(p)
         # α_cruise solvé en LiftingLine
-        alpha_trim, ll = _trim_alpha_3d(airplane, target_L=V2.WEIGHT)
+        alpha_trim, ll, _ = _trim_alpha_3d(airplane, target_L=V2.WEIGHT)
         p["alpha_cruise"] = alpha_trim
         L, D, Cm = ll["L"], ll["D"], ll["Cm"]
     except Exception:
@@ -196,7 +200,7 @@ def export_refined(x: np.ndarray) -> str:
     airplane, wing, stab, mc, mast_obj, fuselage_obj = V2.build_airplane(p)
 
     # --- Aéro : LL pour croisière (3D, α dérivé), AB pour décollage ---
-    alpha_trim, ll_c = _trim_alpha_3d(airplane, target_L=V2.WEIGHT)
+    alpha_trim, ll_c, bracket = _trim_alpha_3d(airplane, target_L=V2.WEIGHT)
     p["alpha_cruise"] = alpha_trim
     L, D, Cm, CL = ll_c["L"], ll_c["D"], ll_c["Cm"], ll_c["CL"]
     D_total = D + V2.D_MAST
@@ -216,25 +220,17 @@ def export_refined(x: np.ndarray) -> str:
     sigma_vm        = V2.von_mises_root(p["wing_root_chord"], p["wing_span"],
                                         load_factor=V2.LOAD_PEAK_FACTOR)
 
-    # Pitch dynamics (analytique) — toutes les métriques de pilotabilité
+    # Pitch dynamics RÉELLE issue du bracket LiftingLine 3D (coût zéro)
     try:
-        pd = V2.pitch_dynamics(wing, stab, mc, p["fuselage_length"], p["cg_ratio"])
+        c_stab_mean = 0.5 * (p["stab_root_chord"] + p["stab_tip_chord"])
+        l_t = (V2.x_fuselage_start + p["fuselage_length"] - V2.STAB_FUSE_OFFSET
+               + 0.25 * c_stab_mean) - 0.25 * mc
+        pd = V2.pitch_dynamics_from_aero(bracket, mc, l_t)
         omega_n = V2.pitch_frequency_hz(pd["Cm_alpha"], V2.q_cruise, wing.area(), mc)
     except Exception:
         pd = {"SM_chord": float("nan"), "SM_abs": float("nan"),
               "SM_lt": float("nan"), "Cm_alpha": float("nan")}
         omega_n = float("nan")
-
-    # SM/c̄ via VLM (vérification — downwash inclus)
-    try:
-        plane_vlm = asb.Airplane(wings=airplane.wings, xyz_ref=airplane.xyz_ref,
-                                 s_ref=airplane.s_ref, c_ref=airplane.c_ref, b_ref=airplane.b_ref)
-        op_p = asb.OperatingPoint(velocity=V2.cfg["v_cruise"], alpha=3.25, atmosphere=V2.atmosphere)
-        op_m = asb.OperatingPoint(velocity=V2.cfg["v_cruise"], alpha=2.75, atmosphere=V2.atmosphere)
-        ap, am = asb.VortexLatticeMethod(plane_vlm, op_p).run(), asb.VortexLatticeMethod(plane_vlm, op_m).run()
-        sm_vlm = -(float(ap["Cm"]) - float(am["Cm"])) / (float(ap["CL"]) - float(am["CL"]))
-    except Exception:
-        sm_vlm = float("nan")
 
     # --- Dossier de sortie ---
     out_dir = V2.next_output_dir(suffix="refined3d")
@@ -273,7 +269,6 @@ def export_refined(x: np.ndarray) -> str:
 
     # --- Fiche markdown (orientée 3D / LiftingLine) ---
     now_disp = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    sm_real_str = f"{sm_vlm*100:.1f}%" if np.isfinite(sm_vlm) else "n/a"
     sm_chord_str = f"{pd['SM_chord']*100:.1f}%" if np.isfinite(pd['SM_chord']) else "n/a"
     omega_str = f"{omega_n:.2f} Hz" if np.isfinite(omega_n) else "UNSTABLE"
     pilot_lvl = V2.PILOT_LEVEL
@@ -320,8 +315,7 @@ def export_refined(x: np.ndarray) -> str:
         f"| Cm_α (raideur tangage) | {pd['Cm_alpha']:.2f} rad⁻¹ | < 0 = stable |",
         f"| SM/l_t (scale-invariant) | {pd['SM_lt']*100:.1f}% | typique aviation 10-25% |",
         f"| Gap NP-CG (absolu) | {pd['SM_abs']*1000:.1f} mm | — |",
-        f"| SM/c̄ (legacy, analytique) | {sm_chord_str} | — (chord-normalisé) |",
-        f"| SM/c̄ via VLM (verif) | {sm_real_str} | écart ≤ 10 pts attendu |",
+        f"| SM/c̄ (legacy, chord-normalisé) | {sm_chord_str} | — |",
         f"| Moment résiduel | {M_total:.3f} N·m | < {0.05*V2.WEIGHT*mc:.2f} N·m |",
         f"| Volume de queue V_h | {v_h:.3f} | [{V2.cfg['vh_range'][0]:.2f}–{V2.cfg['vh_range'][1]:.2f}] |",
         f"| Von Mises root (pic ×{V2.LOAD_PEAK_FACTOR:.1f}g) | {sigma_vm/1e6:.1f} MPa | < {V2.SIGMA_ADMISSIBLE/1e6:.0f} MPa (fatigue) |",

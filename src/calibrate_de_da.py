@@ -1,5 +1,5 @@
 # =================================================================================
-# Calibration empirique de de_da (downwash effectif aile→stab)
+# Calibration empirique de de_da (downwash effectif aile→stab) — voir README
 # -------------------------------------------------------------------------------
 # Pour un hydrofoil avec l_t/c̄ ≈ 5, la formule classique 4/(AR+2) ≈ 0.5
 # surestime fortement le downwash. On l'inverse numériquement à partir de
@@ -74,7 +74,7 @@ def calibrate(ctx: dict, verbose: bool = True) -> tuple:
     """
     fl_lo, fl_hi = ctx["fuselage_length_bounds"]
     if verbose:
-        print(f"  Calibration de_da via VLM (4 appels, ~5s)...", flush=True)
+        print(f"  Calibration de_da via VLM (4 appels, ~3s)...", flush=True)
 
     d_lo, _, _ = _measure_de_da_at(ctx, fl_lo)
     d_hi, _, _ = _measure_de_da_at(ctx, fl_hi)
