@@ -109,7 +109,7 @@ mast:
   immersion_depth: 0.45
   chord_top: 0.135                  # Corde en haut (ligne de flottaison)
   chord_bot: 0.110                  # Corde en bas (plus fin pour la traînée)
-  profile: "naca0010"               # Profil mince (à voir possibilités d'usinage et solidité)
+  profile: "naca0012"               # Profil mince (à voir possibilités d'usinage et solidité)
                                     
   x_position: 0.25                  # 25 cm derrière le BA aile (position standard)
   cd: 0.01                          # Cd cohérent avec profil mince à Re ~1.5e6

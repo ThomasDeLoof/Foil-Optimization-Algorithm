@@ -54,16 +54,20 @@ def calibrate(verbose: bool = True) -> tuple:
     de fuselage_length, puis régression linéaire.
     """
     fl_lo, fl_hi = V2.phy["fuselage"]["length_bounds"]
+    # p_neutral : tous les params requis par build_airplane (planform aile + stab
+    # + angles non-aéro). α_cruise est dérivé maintenant donc plus dans le dict.
     p_neutral = {
         "cg_ratio":           0.40,
         "wing_setting_angle": 0.0,
         "twist":              -1.0,
         "s_twist":            -2.0,
         "alpha_to":            7.0,
-        "alpha_cruise":        3.0,
         "wing_span":          V2.WING_SPAN,
         "wing_root_chord":    V2.WING_ROOT_CHORD,
         "wing_tip_chord":     V2.WING_TIP_CHORD,
+        "stab_span":          V2.STAB_SPAN,
+        "stab_root_chord":    V2.STAB_ROOT_CHORD,
+        "stab_tip_chord":     V2.STAB_TIP_CHORD,
     }
     if verbose:
         print(f"  Calibration de_da via VLM (4 appels, ~3s)...", flush=True)

@@ -94,7 +94,7 @@ SIGMA_CAV     = (P_ATM + atmosphere.density() * 9.81 * profondeur_imm - P_VAPOR)
               / (0.5 * atmosphere.density() * cfg["v_cruise"] ** 2)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. GÉOMÉTRIE — profils et dimensions stab
+# 2. GÉOMÉTRIE — profils et dimensions 
 # ─────────────────────────────────────────────────────────────────────────────
 
 WING_AIRFOIL_NAME = cfg["wing_airfoil"]
@@ -148,8 +148,8 @@ except Exception:
 BOUNDS = [
     tuple(phy["fuselage"]["length_bounds"]),                  #  0 fuselage_length (m)
     tuple(cfg["cg_range"]),                                   #  1 cg_ratio (-)
-    tuple(phy["wing"].get("calage_bounds",  [-2.0, 5.0])),    #  2 wing_setting_angle (°)
-    tuple(phy["wing"].get("washout_bounds", [-5.0, 0.5])),    #  3 twist (°)
+    tuple(phy["wing"].get("calage_bounds", [-2.0, 5.0])),     #  2 wing_setting_angle (°)
+    tuple(phy["wing"].get("twist_bounds",  [-5.0, 0.5])),     #  3 twist (°)  (corrigé: key YAML)
     tuple(phy["stab"]["twist_bounds"]),                       #  4 s_twist (°)
     tuple(phy["alpha"]["bounds"]),                            #  5 alpha_to (°)
     tuple(phy["wing"]["span_bounds"]),                        #  6 wing_span (m)
@@ -202,13 +202,12 @@ X_REF = np.clip(X_REF, LB, UB)
 
 def _adaptive_tip_kick(c_root: float, c_tip: float, span: float,
                        sweep_deg_local: float, N: int,
-                       sweep_power: float = 1.5,
+                       sweep_power: float = 1.1,
                        kick_start: float = 0.85,
                        target_push: float = 0.020) -> float:
     """
-    Calcule le 'tip kick' (recul additionnel au 1/4 corde près du saumon) qui
-    garantit un push-back ≥ `target_push` (m) entre la section pénultième et
-    la section de tip. Si la sweep naturelle suffit déjà, retourne 0.
+    Calcule le 'tip kick' (recul additionnel au 1/4 corde près du saumon)
+    Si la sweep naturelle suffit déjà, retourne 0.
     """
     if N < 2:
         return 0.0
@@ -232,10 +231,7 @@ def build_airplane(p: dict) -> tuple:
     Stab : géométrie figée + twist uniforme = s_twist.
     """
     # ── Aile principale ──────────────────────────────────────────────────────
-    # Planform pure-elliptique + sweep non-linéaire + tip kick ADAPTATIF.
-    # Le kick (recul additionnel du 1/4 corde au saumon, smoothstep C¹) est
-    # calculé pour garantir un push-back monotone du TE quelle que soit la
-    # géométrie courante (span/cordes/sweep libres).
+    # Planform pure-elliptique + sweep non-linéaire + tip kick ADAPTATIF
     span_w  = p["wing_span"]
     root_w  = p["wing_root_chord"]
     tip_w   = min(p["wing_tip_chord"], root_w * 0.95)  # sécurité tip < root
@@ -297,8 +293,6 @@ def build_airplane(p: dict) -> tuple:
     mast_obj = asb.Wing(name="Mast", symmetric=False, xsecs=mast_xsecs)
 
     # ── Stabilisateur ────────────────────────────────────────────────────────
-    # Stab MAINTENANT OPTIMISÉ : span/cordes lus depuis p (3 nouvelles vars).
-    # Même mécanique de tip kick adaptatif.
     stab_span_p = p["stab_span"]
     stab_root_p = p["stab_root_chord"]
     stab_tip_p  = min(p["stab_tip_chord"], stab_root_p * 0.95)  # safety tip<root
@@ -374,11 +368,9 @@ def von_mises_root(chord_root: float, span: float,
 # ─────────────────────────────────────────────────────────────────────────────
 # Approximation du calcul de marge statique pour réduire le coût
 
-# de_da(fl) = SLOPE × fuselage_length + INTERCEPT
-# Calibré par src/calibrate_de_da.py (re-exécuter si géométrie ou scénario change).
-DE_DA_SLOPE     =  0.537
-DE_DA_INTERCEPT = -0.430
-
+# la calibration empirique de DE_DA_SLOPE/INTERCEPT via VLM est implémentée
+from calibrate_de_da import calibrate as _calibrate_de_da
+DE_DA_SLOPE, DE_DA_INTERCEPT = _calibrate_de_da(verbose=True)
 
 def _cl_alpha_helmbold(AR: float) -> float:
     """
@@ -412,12 +404,6 @@ def neutral_point_ratio(wing: asb.Wing, stab: asb.Wing,
     V_H = (stab.area() * l_t) / (wing.area() * mean_chord + 1e-12)
 
     return (X_ac_w / mean_chord) + V_H * (CL_a_s / CL_a_w) * (1.0 - de_da)
-
-
-# NB : la calibration empirique de DE_DA_SLOPE/INTERCEPT via VLM est implémentée
-# dans calibrate_de_da.py. run_multistart() l'appelle au démarrage pour mettre à
-# jour les globals ci-dessus avant la phase DE. Toute la logique vit là-bas.
-
 
 # ── Pitch dynamics — métriques de stabilité physiquement parlantes ───────────
 #   - SM_lt = (X_np - X_cg) / l_t   → adimensionnel, scale-invariant
@@ -724,10 +710,6 @@ def run_multistart(n_starts: int = 1) -> np.ndarray:
           f"c_R/T={STAB_ROOT_CHORD*1000:.0f}/{STAB_TIP_CHORD*1000:.0f} mm")
     print(f"  N_VAR={N_VAR}  pop={DE_PARAMS['popsize']*N_VAR}  gen={DE_PARAMS['maxiter']}")
     print(f"{'='*65}")
-
-    # Calibration auto de_da via VLM 
-    from calibrate_de_da import calibrate as _calibrate_de_da
-    _calibrate_de_da(verbose=True)
 
     val_ref = objective(X_REF)
     print(f"\n  Référence (centre des bornes) : obj={val_ref:.1f} N\n")
