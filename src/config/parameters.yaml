@@ -8,7 +8,7 @@
 # CAS ACTIF
 # Options : "wingfoil", "windsurf", "downwind", "pumping"
 # -----------------------------------------------------------------------------
-case: "windsurf"
+case: "wingfoil"
 
 
 # -----------------------------------------------------------------------------
@@ -21,7 +21,7 @@ pilot:
   mass_kg: 75
   gyration_radius_m: 0.30   # Rayon de giration du système pilote+board+rig
                             # (debout sur planche → ~30 cm). Utilisé pour I_yy.
-  trim_moment_tolerance_N_m: 15.0
+  trim_moment_tolerance_N_m: 25.0
                             # Moment résiduel que le pilote peut compenser
                             # confortablement 
 

@@ -21,9 +21,12 @@ wingfoil:
   # Pilotabilité — ω_n cible (Hz) pour un foil freeride équilibré.
   pilotability_freq: [2.2, 3.0]
 
-  stab_load_range:          # Force stab (N, négatif = déportance)
-    - -70.0
-    - -5.0
+  stab_load_range:          # Force stab cruise (N, négatif = déportance).
+    - -70.0                 # Borne haute = autorité dynamique : à cruise le stab
+    - -20.0                 # DOIT produire ≥ 20 N de download, pour garder ~50 %
+                            # de réserve en CL_stab pour les transitoires (vagues,
+                            # rafales, corrections pilote). Sans ça l'opti glisse
+                            # vers un stab minimum qui ne tient qu'en steady-state.
 
   cg_range:                 # Garde-fou numérique seulement — la pilotabilité
     - 0.05                  # réelle est imposée par la cible ω_n, pas par CG.
@@ -61,9 +64,10 @@ windsurf:
   # Windsurf race-freeride : foil plus réactif que wingfoil (q haut à 13 m/s).
   pilotability_freq: [2.8, 3.8]
 
-  stab_load_range:          # Déportance plus forte pour contrer le moment du gréement
-    - -80.0
-    - -8.0
+  stab_load_range:          # Déportance plus forte pour contrer le moment du gréement.
+    - -80.0                 # Borne haute serrée à -25 N : windsurf race demande
+    - -25.0                 # une grosse autorité de correction pour absorber les
+                            # rafales et clapot à 13 m/s.
 
   cg_range:                 # Garde-fou numérique — pilotabilité via ω_n.
     - 0.05
@@ -101,9 +105,9 @@ downwind:
   # Downwind = glisse longue sur houle : foil "doux à pomper", plage modérée.
   pilotability_freq: [1.8, 2.5]
 
-  stab_load_range:          # Quasi neutre — pas de déportance qui freine la glisse
-    - -30.0
-    - -1.0
+  stab_load_range:          # Quasi neutre — pas de déportance qui freine la glisse,
+    - -30.0                 # mais ≥ 3 N de download pour absorber le swell sans
+    - -3.0                  # que le stab change de signe sur les bosses.
 
   cg_range:                 # Garde-fou numérique — pilotabilité via ω_n.
     - 0.05
@@ -143,9 +147,9 @@ pumping:
   # "porter le pilote", pas demander des micro-corrections rapides.
   pilotability_freq: [1.3, 1.9]
 
-  stab_load_range:          # Quasi nul — le stab ne doit pas freiner le mouvement
-    - -20.0
-    - -0.5
+  stab_load_range:          # Quasi nul — le stab ne doit pas freiner le pumping,
+    - -20.0                 # mais ≥ 2 N de download pour garder un sens d'équilibre
+    - -2.0                  # pendant les cycles d'effort (sinon le rider "perd" le foil).
 
   cg_range:                 # Garde-fou numérique — pilotabilité via ω_n.
     - 0.05

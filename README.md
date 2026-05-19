@@ -70,6 +70,23 @@ Getting an accurate `Cm_α` turned out to be the harder problem. I tried two app
 
 The second approach was chosen, despite the calculation additional costs, because the precision on stability was crucial to the optimisation.
 
+### Dynamic reserve on the stabiliser
+
+One thing that's invisible in a steady-state optimiser but critical in real foils: the stab needs to be **bigger than the strict minimum required at cruise**, because real water isn't steady. Gusts, swell, rider stance shifts, pumping cycles — all of these momentarily demand much more pitch authority than the cruise design point.
+
+Without explicit "robustness" constraints, the optimiser will happily converge to a stab that satisfies cruise trim with just a few Newtons of download. That's mathematically optimal — and physically inoperable. The first time a 50 kt gust hits, the rider has no pitch authority left because the stab is already at near-zero loading.
+
+The fix lives in `scenarios.yaml` via the `stab_load_range` per discipline. The **lower-magnitude bound** (closer to zero) is now set such that the stab must produce a meaningful download at the design point — typically enough to keep ~50 % of its CL budget free as reserve for transients:
+
+| Scenario | Cruise stab download (N, design point) | Why |
+|---|---|---|
+| wingfoil | 20–70 | freeride versatile, moderate wave exposure |
+| windsurf | 25–80 | high q at 13 m/s, sail gusts demand the biggest reserve |
+| downwind | 3–30 | swell mostly aligns with motion, less violent perturbations |
+| pumping  | 2–20 | low q, cycles need authority without much steady load |
+
+The point isn't to force a specific download value — the opti is free in the range. It's to **prevent the trivial minimum** that a pure cruise optimiser would otherwise pick. This is what real manufacturers do, just rarely formalised: their cruise design point sizes the stab at maybe 30-50 % of its CL_max, leaving the rest as headroom.
+
 ### Structure
 
 The root cross-section is modeled as a hollow elliptic carbon shell, around 1.5 mm thick by default (`wing.skin_thickness` in `parameters.yaml`), with a polystyrene core whose contribution is neglected. Calculating and using as a constraint the structural strenght of the foil is critical to ensure the optimization doesn't create absurd shapes (like AR=20 for example).
