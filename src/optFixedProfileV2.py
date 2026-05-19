@@ -100,16 +100,20 @@ SIGMA_CAV     = (P_ATM + atmosphere.density() * 9.81 * profondeur_imm - P_VAPOR)
 WING_AIRFOIL_NAME = cfg["wing_airfoil"]
 STAB_AIRFOIL_NAME = phy["stab"]["airfoil"]
 
+# Taux de tip — tip = TIP_RATIO × root (corde au saumon dérivée, pas variable)
+TIP_RATIO_W = phy["wing"]["tip_chord_ratio"]
+TIP_RATIO_S = phy["stab"]["tip_chord_ratio"]
+
 # Warm-start de la planform aile : on prend la référence du scénario si fournie
 # (scenarios.yaml), sinon les valeurs par défaut de parameters.yaml.
 WING_SPAN         = cfg.get("wing_span_init",       phy["wing"]["span_init"])
 WING_ROOT_CHORD   = cfg.get("wing_root_chord_init", phy["wing"]["root_chord_init"])
-WING_TIP_CHORD    = cfg.get("wing_tip_chord_init",  phy["wing"]["tip_chord_init"])
+WING_TIP_CHORD    = WING_ROOT_CHORD * TIP_RATIO_W
 
-# Stab figé par scénario
+# Stab warm-start
 STAB_SPAN         = cfg["stab_span"]
 STAB_ROOT_CHORD   = cfg["stab_root_chord"]
-STAB_TIP_CHORD    = cfg["stab_tip_chord"]
+STAB_TIP_CHORD    = STAB_ROOT_CHORD * TIP_RATIO_S
 
 # Précalcul des airfoils, avec import robuste (ASB n'a PAS tous les NACA 6-series).
 def _load_airfoil(name: str, fallback: str = "naca2410"):
@@ -141,23 +145,22 @@ except Exception:
 # ─────────────────────────────────────────────────────────────────────────────
 # NB : α_cruise N'EST PAS variable d'opti — il est dérivé en solve interne
 # (L = WEIGHT) à chaque évaluation, ce qui garantit l'équilibre vertical.
+# Cordes au saumon dérivées : tip = TIP_RATIO × root (pas de variable d'opti
+# dédiée, voir TIP_RATIO_W / TIP_RATIO_S).
 # x = [fuselage_length, cg_ratio, wing_setting_angle, twist, s_twist, alpha_to,
-#      wing_span, wing_root_chord, wing_tip_chord,
-#      stab_span, stab_root_chord, stab_tip_chord]
+#      wing_span, wing_root_chord, stab_span, stab_root_chord]
 
 BOUNDS = [
     tuple(cfg["fuselage_length_bounds"]),                     #  0 fuselage_length (m)
     tuple(cfg["cg_range"]),                                   #  1 cg_ratio (-)
     tuple(phy["wing"].get("calage_bounds", [-2.0, 5.0])),     #  2 wing_setting_angle (°)
-    tuple(phy["wing"].get("twist_bounds",  [-5.0, 0.5])),     #  3 twist (°)  (corrigé: key YAML)
+    tuple(phy["wing"].get("twist_bounds",  [-5.0, 0.5])),     #  3 twist (°)
     tuple(phy["stab"]["twist_bounds"]),                       #  4 s_twist (°)
     tuple(phy["alpha"]["bounds"]),                            #  5 alpha_to (°)
     tuple(phy["wing"]["span_bounds"]),                        #  6 wing_span (m)
     tuple(phy["wing"]["root_chord_bounds"]),                  #  7 wing_root_chord (m)
-    tuple(phy["wing"]["tip_chord_bounds"]),                   #  8 wing_tip_chord (m)
-    tuple(phy["stab"]["span_bounds"]),                        #  9 stab_span (m)
-    tuple(phy["stab"]["root_chord_bounds"]),                  # 10 stab_root_chord (m)
-    tuple(phy["stab"]["tip_chord_bounds"]),                   # 11 stab_tip_chord (m)
+    tuple(phy["stab"]["span_bounds"]),                        #  8 stab_span (m)
+    tuple(phy["stab"]["root_chord_bounds"]),                  #  9 stab_root_chord (m)
 ]
 N_VAR = len(BOUNDS)
 LB    = np.array([b[0] for b in BOUNDS])
@@ -168,7 +171,9 @@ STAB_AR_RANGE = tuple(phy["stab"].get("aspect_ratio_range", [4.0, 14.0]))
 
 def decode(x: np.ndarray) -> dict:
     """Découpe le vecteur DE → dictionnaire de paramètres macroscopiques.
-    NB : 'alpha_cruise' est ajouté dynamiquement par solve_trim_alpha (objective)."""
+    Les cordes au saumon sont dérivées (root × TIP_RATIO) — non variables d'opti."""
+    root_w = float(x[7])
+    root_s = float(x[9])
     return {
         "fuselage_length":    float(x[0]),
         "cg_ratio":           float(x[1]),
@@ -177,11 +182,11 @@ def decode(x: np.ndarray) -> dict:
         "s_twist":            float(x[4]),
         "alpha_to":           float(x[5]),
         "wing_span":          float(x[6]),
-        "wing_root_chord":    float(x[7]),
-        "wing_tip_chord":     float(x[8]),
-        "stab_span":          float(x[9]),
-        "stab_root_chord":    float(x[10]),
-        "stab_tip_chord":     float(x[11]),
+        "wing_root_chord":    root_w,
+        "wing_tip_chord":     root_w * TIP_RATIO_W,
+        "stab_span":          float(x[8]),
+        "stab_root_chord":    root_s,
+        "stab_tip_chord":     root_s * TIP_RATIO_S,
     }
 
 
@@ -190,10 +195,8 @@ def decode(x: np.ndarray) -> dict:
 X_REF = np.array([(b[0] + b[1]) / 2 for b in BOUNDS])
 X_REF[6]  = WING_SPAN
 X_REF[7]  = WING_ROOT_CHORD
-X_REF[8]  = WING_TIP_CHORD
-X_REF[9]  = STAB_SPAN
-X_REF[10] = STAB_ROOT_CHORD
-X_REF[11] = STAB_TIP_CHORD
+X_REF[8]  = STAB_SPAN
+X_REF[9]  = STAB_ROOT_CHORD
 X_REF = np.clip(X_REF, LB, UB)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -720,28 +723,28 @@ def _de_callback(_xk: np.ndarray, convergence: float) -> bool:
 def _heuristic_starts() -> list:
     """
     Individus heuristiques DE — couvrent fuselage moyen + diverses planforms
-    aile/stab + 2 CG (avancé/centré). α_cruise n'est plus une variable.
+    aile/stab + 2 CG (avancé/centré). Cordes au saumon dérivées (TIP_RATIO).
     """
     seeds = []
     fl_mid = 0.5 * (BOUNDS[0][0] + BOUNDS[0][1])
     # Planform aile : référence + variante 15 % plus petite
     wing_planforms = [
-        (WING_SPAN, WING_ROOT_CHORD, WING_TIP_CHORD),
-        (0.85 * WING_SPAN, 0.85 * WING_ROOT_CHORD, 0.85 * WING_TIP_CHORD),
+        (WING_SPAN, WING_ROOT_CHORD),
+        (0.85 * WING_SPAN, 0.85 * WING_ROOT_CHORD),
     ]
     # Stab : référence + variante un peu plus grosse (autorité tangage)
     stab_planforms = [
-        (STAB_SPAN, STAB_ROOT_CHORD, STAB_TIP_CHORD),
-        (1.10 * STAB_SPAN, 1.10 * STAB_ROOT_CHORD, 1.10 * STAB_TIP_CHORD),
+        (STAB_SPAN, STAB_ROOT_CHORD),
+        (1.10 * STAB_SPAN, 1.10 * STAB_ROOT_CHORD),
     ]
     for cg in (0.35 * (BOUNDS[1][0] + BOUNDS[1][1]),
                0.60 * (BOUNDS[1][0] + BOUNDS[1][1])):
-        for w_sp, w_rc, w_tc in wing_planforms:
-            for s_sp, s_rc, s_tc in stab_planforms:
+        for w_sp, w_rc in wing_planforms:
+            for s_sp, s_rc in stab_planforms:
                 # x = [fl, cg, calage, twist, s_twist, α_to,
-                #      w_span, w_root, w_tip, s_span, s_root, s_tip]
+                #      w_span, w_root, s_span, s_root]  (tips dérivés)
                 seeds.append(np.array([fl_mid, cg, 0.0, -1.0, -2.0, 7.0,
-                                       w_sp, w_rc, w_tc, s_sp, s_rc, s_tc]))
+                                       w_sp, w_rc, s_sp, s_rc]))
     return [np.clip(s, LB, UB) for s in seeds]
 
 
@@ -1057,8 +1060,8 @@ def full_report(x: np.ndarray) -> None:
     # ── Rapport des bornes saturées ─────────────────────────────────────────
     VAR_NAMES = ["fuselage_length", "cg_ratio", "wing_setting_angle", "twist",
                  "s_twist", "alpha_to",
-                 "wing_span", "wing_root_chord", "wing_tip_chord",
-                 "stab_span", "stab_root_chord", "stab_tip_chord"]
+                 "wing_span", "wing_root_chord",
+                 "stab_span", "stab_root_chord"]
     TOL = 0.02  # 2% de la largeur de bornes
     saturated = []
     for i, (lo, hi) in enumerate(BOUNDS):

@@ -56,10 +56,8 @@ wingfoil:
                                     # de grossir/s'allonger (3 vars d'opti supplémentaires).
   wing_span_init:       0.890
   wing_root_chord_init: 0.170
-  wing_tip_chord_init:  0.053
   stab_span:       0.365
   stab_root_chord: 0.055
-  stab_tip_chord:  0.013
 
 
 # -----------------------------------------------------------------------------
@@ -110,10 +108,8 @@ windsurf:
   wing_airfoil:         "naca1410"   # thin + low camber, conforme au design Speer
   wing_span_init:       0.800
   wing_root_chord_init: 0.120
-  wing_tip_chord_init:  0.025
   stab_span:       0.400
   stab_root_chord: 0.076
-  stab_tip_chord:  0.020
 
 
 # -----------------------------------------------------------------------------
@@ -164,10 +160,8 @@ downwind:
   wing_airfoil:         "e387"   # Eppler 387, thin laminar pour glisse longue
   wing_span_init:       1.020
   wing_root_chord_init: 0.128
-  wing_tip_chord_init:  0.025
   stab_span:       0.385
   stab_root_chord: 0.060
-  stab_tip_chord:  0.015
 
 
 # -----------------------------------------------------------------------------
@@ -220,7 +214,5 @@ pumping:
   wing_airfoil:         "e423"   # Eppler 423, fort camber pour CL_max à basse vitesse
   wing_span_init:       1.200
   wing_root_chord_init: 0.154
-  wing_tip_chord_init:  0.030
   stab_span:       0.385
   stab_root_chord: 0.060
-  stab_tip_chord:  0.015

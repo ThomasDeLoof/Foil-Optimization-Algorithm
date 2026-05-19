@@ -8,7 +8,7 @@
 # CAS ACTIF
 # Options : "wingfoil", "windsurf", "downwind", "pumping"
 # -----------------------------------------------------------------------------
-case: "wingfoil"
+case: "windsurf"
 
 
 # -----------------------------------------------------------------------------
@@ -20,7 +20,7 @@ pilot:
                             # (debout sur planche → ~30 cm). Utilisé pour I_yy.
 
 # Options : "débutant", "intermédiaire", "avancé"
-pilotability: "intermédiaire"
+pilotability: "avancé"
 
 board:
   mass_kg: 6              # Planche (composite, taille standard)
@@ -56,8 +56,8 @@ wing:
   root_chord_bounds: [0.10, 0.30]   # 10 cm (trop mince) à 30 cm (très épais)
   root_chord_init: 0.170            # 170 mm — root max chord BSC 890
 
-  tip_chord_bounds: [0.01, 0.12]    # Saumon entre 10 mm et 120 mm
-  tip_chord_init: 0.053             # 53 mm — calibré pour 1290 cm² @ loi elliptique
+  tip_chord_ratio: 0.25             # tip = 0.25 × root (élégance + AR proche industriel)
+                                    # 0.20 = saumon très fin, 0.30 = trapu freeride
 
   twist_bounds: [-5.0, 2.0]         # Élargi : opti saturait à +1° (recherche un peu de
                                     # vrillage positif côté saumon — washin léger).
@@ -119,7 +119,7 @@ stab:
 
   span_bounds:       [0.25, 0.50]   # Stab freeride : 25-50 cm typique
   root_chord_bounds: [0.04, 0.12]   # 4-12 cm root
-  tip_chord_bounds:  [0.005, 0.04]  # 5-40 mm tip (pour AR raisonnable)
+  tip_chord_ratio:   0.25           # tip = 0.25 × root
 
   twist_bounds: [-6.0, 1.0]
   twist_init: -2.5
