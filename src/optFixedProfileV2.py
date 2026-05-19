@@ -539,8 +539,15 @@ def objective(x: np.ndarray) -> float:
     M_total = M_wing + M_MAST + M_rig
     penalty += K1 * soft_penalty(M_total, -M_TOL_TRIM, +M_TOL_TRIM, ref=M_TOL_TRIM)
 
-    # Pilotabilité : Cm_α dérivé DIRECTEMENT du bracket AeroBuildup (coût zéro,
-    # ~3 % près de VLM — vs 15-20 % erreur pour la formule analytique).
+    # Force stab — éviter la solution tandem
+    try:
+        F_stab = float(aero_c["wing_aero_components"][1].L)
+        f_lo, f_hi = cfg["stab_load_range"]   # négatif = déportance
+        penalty += K2 * soft_penalty(F_stab, f_lo, f_hi, ref=abs(f_lo))
+    except Exception:
+        pass  # pas de pénalité si AeroBuildup n'a pas la décomposition par surface
+
+    # Pilotabilité : Cm_a dérivé DIRECTEMENT du bracket AeroBuildup (coût zéro,
     try:
         c_stab_mean = 0.5 * (p["stab_root_chord"] + p["stab_tip_chord"])
         l_t = (x_fuselage_start + p["fuselage_length"] - STAB_FUSE_OFFSET
@@ -562,11 +569,6 @@ def objective(x: np.ndarray) -> float:
     sigma_vm_peak = von_mises_root(p["wing_root_chord"], p["wing_span"],
                                     load_factor=LOAD_PEAK_FACTOR)
     penalty += K1 * soft_penalty(sigma_vm_peak, 0.0, SIGMA_ADMISSIBLE, ref=SIGMA_ADMISSIBLE)
-
-    # Volume de queue géométrique
-    v_h = (S_stab * p["fuselage_length"]) / (S_wing * mean_chord + 1e-12)
-    vh_lo, vh_hi = cfg["vh_range"]
-    penalty += K3 * soft_penalty(v_h, vh_lo, vh_hi, ref=vh_lo)
 
     # Cavitation : Cp_min ≥ −σ_v
     Cp_min = -(1.2 * abs(CL) + 3.0 * WING_THICKNESS_REL)
@@ -814,7 +816,6 @@ def full_report(x: np.ndarray) -> None:
     cl_to_target = cfg["takeoff_cl_margin"] * CL_MAX_TO
     Re_root      = rho * cfg["v_cruise"] * p["wing_root_chord"] / mu
     Re_tip       = rho * cfg["v_cruise"] * p["wing_tip_chord"]  / mu
-    vh_lo, vh_hi = cfg["vh_range"]
 
     HBAR = "═" * 70
     def SEC(title):
@@ -831,9 +832,8 @@ def full_report(x: np.ndarray) -> None:
           f"root/tip {p['wing_root_chord']*1000:3.0f}/{p['wing_tip_chord']*1000:2.0f} mm   AR {AR_w:5.2f}")
     print(f"    Stab      {STAB_AIRFOIL_NAME:<10}  span {p['stab_span']*100:5.1f} cm   "
           f"root/tip {p['stab_root_chord']*1000:3.0f}/{p['stab_tip_chord']*1000:2.0f} mm   AR {AR_s:5.2f}")
-    vh_target = f"cible {vh_lo:.2f}-{vh_hi:.2f}"
     print(f"    Fuselage  {p['fuselage_length']*100:5.1f} cm    CG {p['cg_ratio']*100:5.1f} % c̄    "
-          f"V_h {v_h:.3f}  {C.dim('(' + vh_target + ')')}")
+          f"V_h {v_h:.3f}  {C.dim('(info)')}")
 
     # ── Trim ──
     print(SEC("Trim"))
@@ -878,6 +878,8 @@ def full_report(x: np.ndarray) -> None:
           f"{C.dim(f'≥ {-SIGMA_CAV:.2f} σ_v cavitation')}   {cav_mark}")
 
     # ── Contraintes ──
+    sl_lo, sl_hi = cfg["stab_load_range"]
+    stab_ok = np.isfinite(F_stab) and (sl_lo <= F_stab <= sl_hi)
     checks = [
         ("L cruise ≥ poids",                 L     >= 0.99 * WEIGHT, ""),
         ("L décollage ≥ poids",              L_to  >= 0.99 * WEIGHT, f"{L_to:.1f} / {WEIGHT:.1f} N"),
@@ -885,10 +887,11 @@ def full_report(x: np.ndarray) -> None:
         (f"CL_to ≤ {cfg['takeoff_cl_margin']:.0%} CL_max ({CASE})",
                                               CL_to <= cl_to_target + 1e-3, f"{CL_to:.3f} / {cl_to_target:.3f}"),
         ("|M_total| ≤ trim authority pilote",abs(M_total) <= M_tol, f"{M_total:+.2f} vs ±{M_tol:.2f} N·m"),
+        (f"Stab déportant dans [{sl_lo:.0f},{sl_hi:.0f}] N",
+                                              stab_ok, f"{F_stab:+.1f} N"),
         ("ω_n dans cible freeride",          omega_ok, f"{omega_n:.2f} vs [{f_lo:.1f}-{f_hi:.1f}] Hz"),
         ("Cavitation OK",                    Cp_min >= -SIGMA_CAV, ""),
         ("σ_VM pic ≤ σ_fatigue",             sigma_vm <= SIGMA_ADMISSIBLE, f"{sigma_vm/1e6:.0f} / {SIGMA_ADMISSIBLE/1e6:.0f} MPa"),
-        ("V_h dans cible",                   cfg["vh_range"][0] <= v_h <= cfg["vh_range"][1], f"{v_h:.3f}"),
         ("α_cruise ≥ -1°",                   p["alpha_cruise"] >= -1.0, f"{p['alpha_cruise']:+.2f}°"),
     ]
     n_ok = sum(1 for _, ok, _ in checks if ok)
@@ -1062,7 +1065,7 @@ def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
         f"| CG | {p['cg_ratio']*100:.1f}% c̄ ({X_cg*100:.1f} cm) | [{cfg['cg_range'][0]*100:.0f}–{cfg['cg_range'][1]*100:.0f}]% |",
         f"| Moment résiduel | {M_total:.3f} N·m | < {M_TOL_TRIM:.1f} N·m (trim authority pilote) |",
         f"| Force stab (info) | {F_stab:.1f} N | — |",
-        f"| Volume de queue | {v_h:.3f} | [{cfg['vh_range'][0]:.2f}–{cfg['vh_range'][1]:.2f}] |",
+        f"| Volume de queue (info) | {v_h:.3f} | — |",
         f"| Von Mises root (pic ×{LOAD_PEAK_FACTOR:.1f}g) | {sigma_vm/1e6:.1f} MPa | < {SIGMA_ADMISSIBLE/1e6:.0f} MPa (fatigue) |",
         f"| Von Mises root (statique 1g) | {sigma_vm_static/1e6:.1f} MPa | < {SIGMA_ULTIMATE/1e6:.0f} MPa (rupture) |",
         f"| σ_v cavitation | {SIGMA_CAV:.2f} | — |",

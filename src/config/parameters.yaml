@@ -21,13 +21,9 @@ pilot:
   mass_kg: 75
   gyration_radius_m: 0.30   # Rayon de giration du système pilote+board+rig
                             # (debout sur planche → ~30 cm). Utilisé pour I_yy.
-  trim_moment_tolerance_N_m: 25.0
+  trim_moment_tolerance_N_m: 15.0
                             # Moment résiduel que le pilote peut compenser
-                            # confortablement via sa stance (~5 kg de poids
-                            # décalé sur un bras de ~0.5 m). Ce n'est PAS une
-                            # tolérance aviation 5%·c̄·W (aberrante pour un
-                            # hydrofoil où le pilote est au-dessus du plan
-                            # de l'aile), mais la "trim authority" réelle.
+                            # confortablement 
 
 board:
   mass_kg: 6              # Planche (composite, taille standard)
@@ -128,7 +124,7 @@ stab:
   root_chord_bounds: [0.04, 0.12]   # 4-12 cm root
   tip_chord_ratio:   0.4           # tip = ratio × root
 
-  twist_bounds: [-6.0, 1.0]
+  twist_bounds: [-6.0, 0.0]
   twist_init: -2.5
 
   sweep_deg: 5.0

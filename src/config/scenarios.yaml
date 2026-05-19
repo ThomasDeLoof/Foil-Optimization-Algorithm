@@ -18,15 +18,11 @@ wingfoil:
   # Marge décollage : fraction de CL_max utilisée au takeoff.
   takeoff_cl_margin: 0.55
 
-  stab_area_range:
-    - 0.013
-    - 0.026
-
   # Pilotabilité — ω_n cible (Hz) pour un foil freeride équilibré.
   pilotability_freq: [2.2, 3.0]
 
   stab_load_range:          # Force stab (N, négatif = déportance)
-    - -45.0
+    - -70.0
     - -5.0
 
   cg_range:                 # Garde-fou numérique seulement — la pilotabilité
@@ -39,10 +35,6 @@ wingfoil:
     - 0.65                  #   borne basse : moment cambré SD7062 demande de l'arm
     - 0.95
   fuselage_length_init: 0.75
-
-  vh_range:                 # Relâché : 0.85 saturait à l'opti précédente
-    - 0.30
-    - 1.150
 
   rig_mass_kg: 3            # Wing léger (3-4 kg typique)
 
@@ -66,15 +58,11 @@ windsurf:
   # (rider expérimenté + vitesse plus haute = takeoff plus "engagé").
   takeoff_cl_margin: 0.70
 
-  stab_area_range:
-    - 0.018
-    - 0.032
-
   # Windsurf race-freeride : foil plus réactif que wingfoil (q haut à 13 m/s).
   pilotability_freq: [2.8, 3.8]
 
   stab_load_range:          # Déportance plus forte pour contrer le moment du gréement
-    - -40.0
+    - -80.0
     - -8.0
 
   cg_range:                 # Garde-fou numérique — pilotabilité via ω_n.
@@ -87,10 +75,6 @@ windsurf:
     - 0.70                  #   long pour stabilité directionnelle haute vitesse
     - 1.00
   fuselage_length_init: 0.85
-
-  vh_range:                 # Fuselage long nécessaire pour la stabilité directionnelle
-    - 0.30
-    - 1.20
 
   rig_mass_kg: 9            # Voile + mât + wishbone
 
@@ -114,15 +98,11 @@ downwind:
   # Downwind = glisse sur houle, foil grand pour stabilité → marge généreuse
   takeoff_cl_margin: 0.55
 
-  stab_area_range:
-    - 0.014
-    - 0.024
-
   # Downwind = glisse longue sur houle : foil "doux à pomper", plage modérée.
   pilotability_freq: [1.8, 2.5]
 
   stab_load_range:          # Quasi neutre — pas de déportance qui freine la glisse
-    - -15.0
+    - -30.0
     - -1.0
 
   cg_range:                 # Garde-fou numérique — pilotabilité via ω_n.
@@ -135,10 +115,6 @@ downwind:
     - 0.60                  #   intermédiaire entre pumping et wingfoil
     - 0.90
   fuselage_length_init: 0.75
-
-  vh_range:                 # Fuselage court pour la maniabilité en virage
-    - 0.20
-    - 0.85
 
   rig_mass_kg: 0
 
@@ -163,16 +139,12 @@ pumping:
   # ce qu'il a au décollage. Pas de marge → foil naturellement gros.
   takeoff_cl_margin: 0.85
 
-  stab_area_range:
-    - 0.016                 
-    - 0.028                
-
   # Pumping = cycles d'effort à très basse vitesse. ω_n basse : le foil doit
   # "porter le pilote", pas demander des micro-corrections rapides.
   pilotability_freq: [1.3, 1.9]
 
   stab_load_range:          # Quasi nul — le stab ne doit pas freiner le mouvement
-    - -10.0
+    - -20.0
     - -0.5
 
   cg_range:                 # Garde-fou numérique — pilotabilité via ω_n.
@@ -185,10 +157,6 @@ pumping:
     - 0.45                  #   court pour réactivité / agilité en pumping
     - 0.75
   fuselage_length_init: 0.60
-
-  vh_range:                 # Fuselage très court pour l'efficacité du pompage
-    - 0.10
-    - 0.70
 
   rig_mass_kg: 0            # Aucun gréement
 
