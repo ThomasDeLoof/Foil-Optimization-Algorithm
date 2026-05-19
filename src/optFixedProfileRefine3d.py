@@ -193,7 +193,9 @@ def export_refined(x: np.ndarray) -> str:
     M_rig   = V2.rig_mass * 9.81 * (-(X_cg - V2.x_mast))
     M_total = M_wing + V2.M_MAST + M_rig
     v_h     = (stab.area() * p["fuselage_length"]) / (wing.area() * mc)
-    sigma_vm = V2.von_mises_root(p["wing_root_chord"], p["wing_span"])
+    sigma_vm_static = V2.von_mises_root(p["wing_root_chord"], p["wing_span"], load_factor=1.0)
+    sigma_vm        = V2.von_mises_root(p["wing_root_chord"], p["wing_span"],
+                                        load_factor=V2.LOAD_PEAK_FACTOR)
 
     # Pitch dynamics (analytique) — toutes les métriques de pilotabilité
     try:
@@ -303,7 +305,8 @@ def export_refined(x: np.ndarray) -> str:
         f"| SM/c̄ via VLM (verif) | {sm_real_str} | écart ≤ 10 pts attendu |",
         f"| Moment résiduel | {M_total:.3f} N·m | < {0.05*V2.WEIGHT*mc:.2f} N·m |",
         f"| Volume de queue V_h | {v_h:.3f} | [{V2.cfg['vh_range'][0]:.2f}–{V2.cfg['vh_range'][1]:.2f}] |",
-        f"| Von Mises root | {sigma_vm/1e6:.1f} MPa | < {V2.SIGMA_CARBONE/1e6:.0f} MPa |",
+        f"| Von Mises root (pic ×{V2.LOAD_PEAK_FACTOR:.1f}g) | {sigma_vm/1e6:.1f} MPa | < {V2.SIGMA_ADMISSIBLE/1e6:.0f} MPa (fatigue) |",
+        f"| Von Mises root (statique 1g) | {sigma_vm_static/1e6:.1f} MPa | < {V2.SIGMA_ULTIMATE/1e6:.0f} MPa (rupture) |",
         "",
     ]
     with open(os.path.join(out_dir, "fiche_technique_3d.md"), "w", encoding="utf-8") as f:

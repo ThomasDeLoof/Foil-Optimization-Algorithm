@@ -63,7 +63,8 @@ wing:
   tip_chord_bounds: [0.01, 0.12]    # Saumon entre 10 mm et 120 mm
   tip_chord_init: 0.053             # 53 mm — calibré pour 1290 cm² @ loi elliptique
 
-  twist_bounds: [-5.0, 1.0]
+  twist_bounds: [-5.0, 2.0]         # Élargi : opti saturait à +1° (recherche un peu de
+                                    # vrillage positif côté saumon — washin léger).
   twist_init: -1.5
 
   calage_bounds: [-3.0, 5.0]        # Élargi : opti tendait vers la borne basse -2°
@@ -79,12 +80,23 @@ wing:
   # Construction : coque carbone + âme polystyrène (résistance âme négligée)
   skin_thickness: 0.0015            # 1.5 mm — peau carbone typique sur aile freeride
 
+  # Limites mécaniques — DIMENSIONNEMENT FATIGUE 
+  ultimate_stress_mpa: 300          # σ_ult carbone-époxy cross-ply (~300 MPa)
+  fatigue_allowable_ratio: 0.40     # Fraction de σ_ult utilisable en cyclique
+                                    #   0.30-0.40 : freeride grand public (>10⁶ cycles)
+                                    #   0.45-0.55 : race pro (cycles limités, inspection)
+                                    # → σ_admissible = 120 MPa par défaut
+  load_peak_factor: 2.5             # Pic dynamique / charge statique cruise (n_g équiv.)
+                                    #   2-3 : maneuvering hydrofoil typique sur clapot
+                                    #   4-5 : conditions agitées, pumping vigoureux, choc
+
 
 # -----------------------------------------------------------------------------
 # FUSELAGE
 # -----------------------------------------------------------------------------
 fuselage:
-  length_bounds: [0.55, 0.95]       # 55 cm (court/pumping) à 95 cm (long/windsurf)
+  length_bounds: [0.50, 0.95]       # 50 cm (très court/pumping) à 95 cm (long/windsurf).
+                                    # Borne basse abaissée : opti saturait à 55 cm.
   length_init: 0.75
   diameter: 0.035                   # 35 mm diamètre standard tube carbone
   x_start: 0.10                     # Nez fuselage à 10 cm derrière le BA aile
@@ -99,19 +111,19 @@ mast:
   immersion_depth: 0.45
   chord_top: 0.135                  # Corde en haut (ligne de flottaison)
   chord_bot: 0.110                  # Corde en bas (plus fin pour la traînée)
-  profile: "naca0015"               # Symétrique épais
+  profile: "naca0010"               # Profil mince (à voir possibilités d'usinage et solidité)
+                                    
   x_position: 0.25                  # 25 cm derrière le BA aile (position standard)
-  cd: 0.011                         # Cd conservateur (néglige la ventilation)
+  cd: 0.01                          # Cd cohérent avec profil mince à Re ~1.5e6
+                      
   n_sections: 5
-
 
 # -----------------------------------------------------------------------------
 # STABILISATEUR
 # -----------------------------------------------------------------------------
 stab:
   # NB : les dimensions du stab (span/cordes) sont définies PAR SCÉNARIO dans
-  # scenarios.yaml (elles dépendent du foil principal). Le stab n'est pas
-  # optimisé — c'est une géométrie figée du "companion".
+  # scenarios.yaml (elles dépendent du foil principal)
   airfoil: "naca0012"               # Symétrique standard pour stab calé
 
   twist_bounds: [-6.0, 1.0]

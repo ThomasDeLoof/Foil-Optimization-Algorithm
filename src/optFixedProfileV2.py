@@ -79,8 +79,15 @@ q_cruise = 0.5 * atmosphere.density() * cfg["v_cruise"] ** 2
 D_MAST   = q_cruise * ((mast_chord_bot + chord_wl) / 2) * profondeur_imm * cd_mast
 M_MAST   = -D_MAST * (profondeur_imm / 2)
 
-# ── Limites physiques ─────────────────────────────────
-SIGMA_CARBONE = 300e6
+# ── Limites mécaniques — DIMENSIONNEMENT FATIGUE ──────────────────────────────
+# σ_ultimate = limite de rupture statique (≈300 MPa cross-ply carbone).
+# σ_admissible = limite de fatigue (~40% de σ_ult sur 10⁶ cycles, ajustable YAML).
+# load_peak_factor = facteur dynamique (maneuvering / vagues) appliqué à la
+# charge statique pour calculer le pic de contrainte.
+SIGMA_ULTIMATE     = phy["wing"]["ultimate_stress_mpa"] * 1e6
+FATIGUE_RATIO      = phy["wing"]["fatigue_allowable_ratio"]
+LOAD_PEAK_FACTOR   = phy["wing"]["load_peak_factor"]
+SIGMA_ADMISSIBLE   = FATIGUE_RATIO * SIGMA_ULTIMATE          # ex: 0.40 × 300 = 120 MPa
 P_ATM         = atmosphere.pressure()
 P_VAPOR       = atmosphere.vapor_pressure()
 SIGMA_CAV     = (P_ATM + atmosphere.density() * 9.81 * profondeur_imm - P_VAPOR) \
@@ -322,22 +329,26 @@ def build_airplane(p: dict) -> tuple:
 # 5. CONTRAINTE STRUCTURELLE 
 # ─────────────────────────────────────────────────────────────────────────────
 
-def von_mises_root(chord_root: float, span: float) -> float:
+def von_mises_root(chord_root: float, span: float,
+                   load_factor: float = 1.0) -> float:
     """
-    Approximation Von Mises à l'emplanture — section coque carbone + âme polystyrène.
-    Maintenant fonction de la planform (planform libérée dans l'optimisation).
+    Von Mises à l'emplanture — coque carbone + âme polystyrène (négligée).
+    `load_factor` multiplie la charge statique pour estimer le PIC dynamique
+    (maneuvering, vagues, pumping). Le résultat est ensuite comparé à
+    SIGMA_ADMISSIBLE (= fatigue_ratio × σ_ult, ~120 MPa) — pas à σ_ult.
     """
-    span_semi = span / 2.0
-    t_max     = WING_THICKNESS_REL * chord_root
-    a, b      = chord_root / 2.0, t_max / 2.0
+    weight_eff = WEIGHT * load_factor
+    span_semi  = span / 2.0
+    t_max      = WING_THICKNESS_REL * chord_root
+    a, b       = chord_root / 2.0, t_max / 2.0
 
     t_skin     = min(WING_SKIN_THICK, 0.9 * b)
     a_in, b_in = max(a - t_skin, 0.0), max(b - t_skin, 0.0)
     I_xx  = (np.pi / 4.0) * (a * b ** 3 - a_in * b_in ** 3)
     A_enc = np.pi * a * b
 
-    M_flex = (WEIGHT / 2.0) * (span_semi / 4.0)
-    M_tors = (WEIGHT / 2.0) * (0.05 * chord_root) * (span_semi / 2.0)
+    M_flex = (weight_eff / 2.0) * (span_semi / 4.0)
+    M_tors = (weight_eff / 2.0) * (0.05 * chord_root) * (span_semi / 2.0)
 
     sigma_flex = M_flex * b / (I_xx + 1e-12)
     tau        = M_tors / (2.0 * A_enc * t_skin + 1e-12)
@@ -570,8 +581,12 @@ def objective(x: np.ndarray) -> float:
     # ── Pénalités auxiliaires ────────────────────────────────
 
     # Contrainte structurelle : von Mises emplanture (coque carbone)
-    sigma_vm = von_mises_root(p["wing_root_chord"], p["wing_span"])
-    penalty += K1 * soft_penalty(sigma_vm, 0.0, SIGMA_CARBONE, ref=SIGMA_CARBONE)
+    # Contrainte fatigue : pic dynamique vs limite admissible (≠ rupture statique).
+    # Pour foils race AR>15 ce critère devient actif, alors qu'il était trivialement
+    # satisfait quand on comparait à σ_ultimate (~300 MPa) sur charge statique seule.
+    sigma_vm_peak = von_mises_root(p["wing_root_chord"], p["wing_span"],
+                                    load_factor=LOAD_PEAK_FACTOR)
+    penalty += K1 * soft_penalty(sigma_vm_peak, 0.0, SIGMA_ADMISSIBLE, ref=SIGMA_ADMISSIBLE)
 
     # Volume de queue géométrique
     v_h = (S_stab * p["fuselage_length"]) / (S_wing * mean_chord + 1e-12)
@@ -805,8 +820,11 @@ def full_report(x: np.ndarray) -> None:
 
     AR_w, AR_s = float(wing.aspect_ratio()), float(stab.aspect_ratio())
 
-    # Von Mises emplanture (recalculé pour la planform courante)
-    sigma_vm = von_mises_root(p["wing_root_chord"], p["wing_span"])
+    # Von Mises emplanture — statique cruise (1g) ET pic dynamique (n_g équivalent).
+    # Le critère de design est sur le PIC : σ_peak < σ_admissible (fatigue).
+    sigma_vm_static = von_mises_root(p["wing_root_chord"], p["wing_span"], load_factor=1.0)
+    sigma_vm        = von_mises_root(p["wing_root_chord"], p["wing_span"],
+                                     load_factor=LOAD_PEAK_FACTOR)
 
     print(f"\n{'='*65}")
     print(f"  RÉSULTAT FINAL — {CASE.upper()}  (V3 Paramétrique)")
@@ -838,7 +856,9 @@ def full_report(x: np.ndarray) -> None:
     print(f"  Volume de queue  : {v_h:5.3f}        (cible [{cfg['vh_range'][0]:.2f}–{cfg['vh_range'][1]:.2f}])")
     print(f"  L décollage      : {L_to:6.1f} / {WEIGHT:.1f} N   CL_to : {CL_to:.3f} / {CL_MAX_TO}")
     print(f"  Moment résiduel  : {M_total:.3f} N·m   Force stab : {F_stab:.1f} N")
-    print(f"  Von Mises root   : {sigma_vm/1e6:.1f} MPa / {SIGMA_CARBONE/1e6:.0f} MPa")
+    print(f"  Von Mises root   : pic dyn (×{LOAD_PEAK_FACTOR:.1f}g) {sigma_vm/1e6:.1f} MPa  "
+          f"| statique {sigma_vm_static/1e6:.1f} MPa  "
+          f"| limite fatigue {SIGMA_ADMISSIBLE/1e6:.0f} MPa  (ult. {SIGMA_ULTIMATE/1e6:.0f})")
     print(f"  σ_v cavitation   : {SIGMA_CAV:.2f}")
 
     # ── Récap des contraintes ───────────────────────────────────────────────
@@ -852,7 +872,7 @@ def full_report(x: np.ndarray) -> None:
         ("|M_total| ≤ 5% M_ref",    abs(M_total) <= M_tol),
         (f"ω_n dans '{pilot_lvl}' [{f_lo:.1f}-{f_hi:.1f}] Hz", omega_ok),
         ("Cavitation OK",           Cp_min >= -SIGMA_CAV),
-        ("σ_VM ≤ σ_carbone",        sigma_vm <= SIGMA_CARBONE),
+        ("σ_VM pic ≤ σ_fatigue",    sigma_vm <= SIGMA_ADMISSIBLE),
         ("V_h dans cible",          cfg["vh_range"][0] <= v_h <= cfg["vh_range"][1]),
         ("α_cruise ≥ -1°",          p["alpha_cruise"] >= -1.0),
     ]
@@ -871,7 +891,7 @@ def full_report(x: np.ndarray) -> None:
 
     _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
                SM_approx, SM_real, F_stab, v_h, M_total, L_to, CL_to, rho, mu, X_cg, AR_w, AR_s,
-               sigma_vm, pd, omega_n, pilot_lvl, f_lo, f_hi)
+               sigma_vm, sigma_vm_static, pd, omega_n, pilot_lvl, f_lo, f_hi)
 
     # ── Export XFLR5 + profils .dat — méthode V1 (la seule qui marche en pratique).
     # On RENOMME chaque section avec un nom unique (wing_sec_0, ...) et on écrit
@@ -897,10 +917,7 @@ def full_report(x: np.ndarray) -> None:
             for x, y in final:
                 f.write(f" {x:.6f} {y:.6f}\n")
 
-    # IMPORTANT : toutes les xsecs d'une aile partagent le même objet Airfoil
-    # en mémoire (WING_AIRFOIL est créé une fois et passé par référence). Si on
-    # renomme `xs.airfoil.name`, on écrase aussi les sections précédentes.
-    # → on COPIE l'airfoil par section avant de renommer.
+    # IMPORTANT → on COPIE l'airfoil par section avant de renommer.
     import copy
     def _rename_and_export(xsecs, prefix):
         for i, xs in enumerate(xsecs):
@@ -955,7 +972,7 @@ def full_report(x: np.ndarray) -> None:
 
 def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
                SM_approx, SM_real, F_stab, v_h, M_total, L_to, CL_to, rho, mu, X_cg, AR_w, AR_s,
-               sigma_vm, pd, omega_n, pilot_lvl, f_lo, f_hi):
+               sigma_vm, sigma_vm_static, pd, omega_n, pilot_lvl, f_lo, f_hi):
     now_str = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     Re_root = rho * cfg["v_cruise"] * p["wing_root_chord"] / mu
     Re_tip  = rho * cfg["v_cruise"] * p["wing_tip_chord"]  / mu
@@ -1019,7 +1036,8 @@ def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
         f"| Moment résiduel | {M_total:.3f} N·m | < {0.05*WEIGHT*mean_chord:.2f} N·m |",
         f"| Force stab (info) | {F_stab:.1f} N | — |",
         f"| Volume de queue | {v_h:.3f} | [{cfg['vh_range'][0]:.2f}–{cfg['vh_range'][1]:.2f}] |",
-        f"| Von Mises root | {sigma_vm/1e6:.1f} MPa | < {SIGMA_CARBONE/1e6:.0f} MPa |",
+        f"| Von Mises root (pic ×{LOAD_PEAK_FACTOR:.1f}g) | {sigma_vm/1e6:.1f} MPa | < {SIGMA_ADMISSIBLE/1e6:.0f} MPa (fatigue) |",
+        f"| Von Mises root (statique 1g) | {sigma_vm_static/1e6:.1f} MPa | < {SIGMA_ULTIMATE/1e6:.0f} MPa (rupture) |",
         f"| σ_v cavitation | {SIGMA_CAV:.2f} | — |",
         "",
     ]
@@ -1037,8 +1055,9 @@ def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
         warn.append(f"⚠️ CL_to {CL_to:.2f} > CL_max {CL_MAX_TO}")
     if abs(M_total) > 0.05 * WEIGHT * mean_chord:
         warn.append(f"⚠️ Moment résiduel {M_total:.2f} N·m hors tolérance 5%")
-    if sigma_vm > SIGMA_CARBONE:
-        warn.append(f"⚠️ Von Mises {sigma_vm/1e6:.0f} MPa > admissible")
+    if sigma_vm > SIGMA_ADMISSIBLE:
+        warn.append(f"⚠️ Von Mises pic dyn {sigma_vm/1e6:.0f} MPa > σ_fatigue {SIGMA_ADMISSIBLE/1e6:.0f} MPa "
+                    f"— ratio {sigma_vm/SIGMA_ADMISSIBLE:.2f}, foil sous-dimensionné en fatigue")
     if warn:
         lines += ["## ⚠️ Avertissements", ""] + [f"- {w}" for w in warn] + [""]
 

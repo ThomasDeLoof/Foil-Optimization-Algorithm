@@ -61,15 +61,32 @@ The objective is multi-point: `D_cruise + 0.3 · D_takeoff`. The takeoff weight 
 
 ### Stability and pilotability
 
-This is the part that took the longest to figure out. The classical aircraft static margin (SM normalised by mean chord) doesn't really work for a wingfoil. Two reasons.
+This is the part that took the longest to figure out. The classical aircraft static margin (SM normalised by mean chord) doesn't really work for a wingfoil : 
 
-First, the dominant mass of the system — pilot + board + rig, roughly 84 kg out of 85 — sits on the board above the mast, which is well behind the wing in chord units. Compute SM about that *physical* CG and you get something around −80 %: the foil is statically unstable in the classical sense, exactly like a modern fighter, and the pilot stabilises it dynamically with their stance. The "SM" we can actually measure aerodynamically assumes the CG sits at some fraction of the wing chord; it's a geometric proxy, not a pilot-felt stability.
+First, the approximation used to calculate the original SM (critical for reducing calculation costs) needed a refinement on how the downwash influenced it. I had to calibrate it empirically against VLM by `calibrate_de_da.py` — the classic textbook `4/(AR+2) ≈ 0.5` is off by a factor of five for hydrofoils because the tail arm is so long that the downwash has mostly dissipated by the time it reaches the stab.
 
-Second, even taking the proxy at face value, SM/c̄ is *not scale-invariant*. When the optimizer freely picks the planform, it tends to shrink the wing, which shrinks `c̄`, which mechanically inflates SM/c̄ even though the physical distance NP − CG hasn't changed. We saw runs with SM/c̄ around 85-105 % that were perfectly fine physically — the gap NP − CG was about 80 mm with a tail arm of 540 mm, which is 15 % of the tail arm. That's standard aviation-stable territory; the 100 % figure was just the chord normalisation talking.
+I then dropped SM/c̄ as the constraint and replaces it with a **pilotability** target expressed as a pitch natural frequency `ω_n` (Hz). The idea is that what the pilot actually feels isn't a static margin in chord units, it's the speed at which the foil responds to a pitch perturbation — the short-period mode. We compute it analytically from `Cm_α = -SM · CL_α_total`, the dynamic pressure, the wing reference area and chord, and an inertia estimate `I_yy = m_total · r_gyr²` (gyration radius ≈ 30 cm for a rider standing on the board, set in `parameters.yaml`). 
 
-V3 therefore drops SM/c̄ as the constraint and replaces it with a **pilotability** target expressed as a pitch natural frequency `ω_n` (Hz). The idea is that what the pilot actually feels isn't a static margin in chord units, it's the speed at which the foil responds to a pitch perturbation — the short-period mode. We compute it analytically from `Cm_α = -SM · CL_α_total`, the dynamic pressure, the wing reference area and chord, and an inertia estimate `I_yy = m_total · r_gyr²` (gyration radius ≈ 30 cm for a rider standing on the board, set in `parameters.yaml`). This costs nothing — it's algebra on values we already have, no extra solver calls.
 
-Three pilotability levels — **débutant**, **intermédiaire**, **avancé** — and each *scenario* has its own ω_n range per level, because "avancé" on a 13 m/s windsurf race foil isn't the same physical feeling as "avancé" on a 6 m/s pumping wing. The active level is picked once globally in `parameters.yaml` (`pilotability: "intermédiaire"`), and each scenario's `pilotability_freq` table maps it to a target range in Hz:
+### Structure
+
+The root cross-section is modeled as a hollow elliptic carbon shell, around 1.5 mm thick by default (`wing.skin_thickness` in `parameters.yaml`), with a polystyrene core whose contribution is neglected. Calculating and using as a constraint the structural strenght of the foil is critical to ensure the optimization doesn't create absurd shapes (like AR=20 for example).
+
+The constraint is **fatigue**, not ultimate. Carbon-epoxy cross-ply breaks around 300 MPa, but nobody designs foils to ultimate, the structure fatigues long before it fractures. The allowable working stress is therefore set at `fatigue_allowable_ratio · σ_ult` (default 40 %, so ~120 MPa). On top of that, the loading we compute multiplies the static cruise load by a `load_peak_factor` (default 2.5×) to estimate the dynamic peak the structure sees in real conditions (wave impacts, tight turns, hard pumping). So the check is: peak von Mises stress under 2.5g loading < 120 MPa.
+
+With this new fatigue-based criterion, AR 12 sits at the limit, AR 15 and above are infeasible : that maps closely to why real freeride wings cluster around AR 6-10 and why race wings rarely go past AR 12 even though carbon could "in theory" allow much more.
+
+### Scripts
+
+* `src/optFixedProfileV2.py` — main optimizer: Differential Evolution on 10 variables (planform + trim), followed automatically by 3D trim refinement (LiftingLine + Nelder-Mead with bounds). Produces the technical sheet, XFLR5 XML, and a `.dat` per wing section so XFLR5 picks the geometry up automatically.
+* `src/calibrate_de_da.py` — one-shot empirical calibration of `de_da` against VLM, prints the slope and intercept to paste into V2
+* `src/optFixedProfileRefine3d.py` — same refinement step, but standalone: re-loads the latest `x_best.npy` and runs LiftingLine post-processing on it. Useful to re-process a saved design or compare 2D vs 3D side by side. Called automatically by V2 at the end of every run, so usually you don't need to invoke it yourself.
+
+### Scenarios
+
+Four scenarios share the same code path: `wingfoil`, `windsurf`, `downwind`, `pumping`. Each one sets its own velocities, mass of the rig, area target range, allowable CG range, achievable SM range, wing airfoil, and stab dimensions. Switching scenario is a one-line edit (`case:` in `parameters.yaml`). The wingfoil case is the most extensively tuned and the one to start from.
+
+Three pilotability levels — **débutant**, **intermédiaire**, **avancé** — and each *scenario* has its own $\omega_n$ range per level, because advanced on a $13 m/s$ windsurf race foil isn't the same physical feeling as advanced on a $6 m/s$ pumping wing. The active level is picked once globally in `parameters.yaml` (`pilotability: "intermédiaire"`), and each scenario's `pilotability_freq` table maps it to a target range in Hz:
 
 | Scenario | débutant | intermédiaire | avancé |
 |---|---|---|---|
@@ -78,70 +95,7 @@ Three pilotability levels — **débutant**, **intermédiaire**, **avancé** —
 | downwind | 1.3–1.8 Hz | 1.8–2.5 Hz | 2.5–3.5 Hz |
 | pumping | 0.8–1.3 Hz | 1.3–1.9 Hz | 1.9–2.8 Hz |
 
-Notice how the same "intermédiaire" label maps to 2.2 Hz for wingfoil but 2.8 Hz for windsurf — windsurf at high speed needs a foil that responds faster than the same skill class would on a wingfoil. Pumping sits very low across the board because the cycle works against pitch oscillation. The optimizer's soft penalty pushes `ω_n` into the active range. The downwash factor `de_da` used inside the analytical Cm_α is still calibrated empirically against VLM by `calibrate_de_da.py` — the classic textbook `4/(AR+2) ≈ 0.5` is off by a factor of five for hydrofoils because the tail arm is so long that the downwash has mostly dissipated by the time it reaches the stab.
-
-What's displayed in the technical sheet (and in the console at end of run): `ω_n` in Hz with its target range, `Cm_α` in rad⁻¹, `SM/l_t` (scale-invariant), the absolute NP − CG gap in mm, and the legacy SM/c̄ for backwards comparison.
-
-### Structure
-
-The root cross-section is modeled as a hollow elliptic carbon shell, 1.5 mm thick by default (`wing.skin_thickness` in `parameters.yaml`), with a polystyrene core whose contribution is neglected. Bending uses the difference of two elliptic second moments (outer minus inner ellipse); torsion uses Bredt's formula for thin-walled closed sections, which is the right one for a shell — much more punishing than the solid-ellipse `J` it replaced. Von Mises at the root is then checked against 300 MPa, a conservative figure for high-modulus carbon/epoxy.
-
-### Scripts
-
-* `src/optFixedProfileV2.py` — main optimizer: Differential Evolution on 10 variables (planform + trim), followed automatically by 3D trim refinement (LiftingLine + Nelder-Mead with bounds). Produces the technical sheet, XFLR5 XML, and a `.dat` per wing section so XFLR5 picks the geometry up automatically.
-* `src/calibrate_de_da.py` — one-shot empirical calibration of `de_da` against VLM, prints the slope and intercept to paste into V2
-* `src/optFixedProfileRefine3d.py` — same refinement step, but standalone: re-loads the latest `x_best.npy` and runs LiftingLine post-processing on it. Useful to re-process a saved design or compare 2D vs 3D side by side. Called automatically by V2 at the end of every run, so usually you don't need to invoke it yourself.
-
-The intended workflow:
-
-```bash
-python src/optFixedProfileV2.py                  # ~12 min — DE + auto 3D refinement
-python src/calibrate_de_da.py                    # ~5 s — re-run if wing/stab dimensions change
-python src/optFixedProfileRefine3d.py            # optional — re-refine a previous run
-```
-
-### Scenarios
-
-Four scenarios share the same code path: `wingfoil`, `windsurf`, `downwind`, `pumping`. Each one sets its own velocities, mass of the rig, area target range, allowable CG range, achievable SM range, wing airfoil, and stab dimensions. Switching scenario is a one-line edit (`case:` in `parameters.yaml`). The wingfoil case is the most extensively tuned and the one to start from.
-
----
-
-## V1 example output (kept for reference)
-
-For comparison, here is a wingfoil-freeride design generated by V1 before the structural correction was added:
-
-| **WING GEOMETRY** | - |
-| :--- | :--- |
-| Surface Area | 1180.0 cm² |
-| Wingspan | 90.0 cm |
-| Aspect Ratio | 7.22 |
-| Root profile | Naca1415 |
-| Root Chord | 176.6 mm |
-| Tip Chord | 10.0 mm |
-| Twist | -1.30° |
-| Wing Loading | 6650.85 N/m² |
-| **STABILIZER GEOMETRY** | - |
-| Surface Area | 160.0 cm² |
-| Wingspan | 32.0 cm |
-| Aspect Ratio | 6.43 |
-| Root Chord | 73.4 mm |
-| Twist | -2.74° |
-| **PERFORMANCE** | - |
-| Glide Ratio (L/D) | 11.84 |
-| Drag | 66.30 N |
-| Angle of Attack | 2.55° |
-| CL Cruising | 0.147 |
-| CD Cruising | 0.0125 |
-| **STABILITY & BALANCE** | - |
-| Static Margin | 63.36% |
-| CG Position | 54.1% |
-| Stability Force | -10.00 N |
-| Residual Moment | 1.0030 N·m |
-| Tail Volume | 0.7427 |
-
-<img width="817" height="639" alt="Foil_Downstream" src="https://github.com/user-attachments/assets/6243c017-91a7-4880-a509-580f1d4e0084" />
-
-<img width="828" height="852" alt="Capture d’écran 2026-05-05 à 08 23 06" src="https://github.com/user-attachments/assets/781b081f-e242-48f6-9e1c-2e7f3f9fbcc5" />
+## Outputs
 
 Run V3 yourself to get the equivalent table for any of the four scenarios — it lands in `outputs/<scenario>_v3param_<timestamp>/fiche_technique.md`.
 

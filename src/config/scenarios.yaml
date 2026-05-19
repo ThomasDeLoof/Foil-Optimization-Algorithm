@@ -33,9 +33,9 @@ wingfoil:
     - -45.0
     - -5.0
 
-  cg_range:                 # Position CG / corde moyenne (relâché : 0.45 saturait)
+  cg_range:                 # Position CG / corde moyenne (relâché : 0.50 saturait)
     - 0.30                  # avant : pilotage précis
-    - 0.50                  # arrière : limite raisonnable (au-delà, F_stab explose)
+    - 0.55                  # arrière : limite raisonnable (au-delà, F_stab explose)
 
   cg_ratio_init: 0.38
 
