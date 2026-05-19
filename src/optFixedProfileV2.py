@@ -9,7 +9,7 @@ import warnings
 import numpy as np
 import yaml
 from pathlib import Path
-from scipy.optimize import differential_evolution, minimize, Bounds
+from scipy.optimize import differential_evolution
 from scipy.stats import qmc
 
 import aerosandbox as asb
@@ -388,6 +388,11 @@ def neutral_point_ratio(wing: asb.Wing, stab: asb.Wing,
     return (X_ac_w / mean_chord) + V_H * (CL_a_s / CL_a_w) * (1.0 - de_da)
 
 
+# NB : la calibration empirique de DE_DA_SLOPE/INTERCEPT via VLM est implémentée
+# dans calibrate_de_da.py. run_multistart() l'appelle au démarrage pour mettre à
+# jour les globals ci-dessus avant la phase DE. Toute la logique vit là-bas.
+
+
 # ── Pitch dynamics — métriques de stabilité physiquement parlantes ───────────
 #   - SM_lt = (X_np - X_cg) / l_t   → adimensionnel, scale-invariant
 #   - Cm_α                          → vraie raideur de tangage (rad⁻¹)
@@ -587,7 +592,7 @@ def objective(x: np.ndarray) -> float:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 8. OPTIMISATION — DIFFERENTIAL EVOLUTION + AFFINAGE
+# 8. OPTIMISATION — DIFFERENTIAL EVOLUTION + RAFFINAGE 3D (LiftingLine)
 # ─────────────────────────────────────────────────────────────────────────────
 
 DE_PARAMS = {
@@ -595,7 +600,7 @@ DE_PARAMS = {
     "maxiter":       100,
     "popsize":       25,           # 25 × 7 = 175 individus — suffisant pour 7 var
     "tol":           1e-4,
-    "atol":          1e-2,
+    "atol":          1e-3,
     "mutation":      (0.5, 1.0),
     "recombination": 0.85,
     "workers":       -1,
@@ -653,8 +658,12 @@ def run_multistart(n_starts: int = 1) -> np.ndarray:
     print(f"  N_VAR={N_VAR}  pop={DE_PARAMS['popsize']*N_VAR}  gen={DE_PARAMS['maxiter']}")
     print(f"{'='*65}")
 
+    # Calibration auto de_da via VLM 
+    from calibrate_de_da import calibrate as _calibrate_de_da
+    _calibrate_de_da(verbose=True)
+
     val_ref = objective(X_REF)
-    print(f"  Référence (centre des bornes) : obj={val_ref:.1f} N\n")
+    print(f"\n  Référence (centre des bornes) : obj={val_ref:.1f} N\n")
 
     heuristics = _heuristic_starts()
     best_x     = X_REF.copy()
@@ -702,20 +711,23 @@ def run_multistart(n_starts: int = 1) -> np.ndarray:
         else:
             print()
 
-    # ── Affinage local L-BFGS-B ──────────────────────────────────────────────
-    print(f"\n  Affinage L-BFGS-B depuis le meilleur ({best_val:.1f} N)...")
-    refined = minimize(
-        objective, best_x,
-        method="L-BFGS-B",
-        bounds=Bounds(LB, UB),
-        options={"maxiter": 500, "ftol": 1e-10, "gtol": 1e-7, "disp": False},
-    )
-    x_final = np.clip(refined.x, LB, UB)
-    if refined.fun < best_val:
-        print(f"  ✓ Affinage : {best_val:.1f} → {refined.fun:.1f} N")
-        best_x = x_final
-    else:
-        print("  ~ Affinage non améliorant")
+    # ── Affinage 3D (LiftingLine + Nelder-Mead borné) ────────────────────────
+    # LiftingLine capture le downwash et le induced drag, ce qui re-trimme correctement les angles
+    try:
+        import optFixedProfileRefine3d as R3
+        print(f"\n  Raffinage 3D (LiftingLine, planform fixée) depuis le meilleur DE ({best_val:.1f} N)...")
+        best_x_clipped = np.clip(best_x, LB, UB)
+        x_refined, J_refined, n_iter = R3.refine_trim_3d(best_x_clipped, maxiter=80)
+        # Comparer : on évalue x_refined en cohérence avec l'objective DE (AB),
+        # pour décider si on garde le raffinage 3D ou la solution DE pure.
+        val_refined_ab = objective(x_refined)
+        print(f"  ✓ Raffinage 3D : {n_iter} itérations, coût 3D = {J_refined:.1f} N, "
+              f"coût 2D-équivalent = {val_refined_ab:.1f} N")
+        # On garde TOUJOURS x_refined : c'est la solution 3D physiquement correcte,
+        # même si son score "AeroBuildup" est moins bon (AB sous-estime L à α bas).
+        best_x = x_refined
+    except Exception as e:
+        print(f"  ~ Raffinage 3D échec ({type(e).__name__}: {str(e)[:80]}) — fallback solution DE")
         best_x = np.clip(best_x, LB, UB)
 
     return best_x

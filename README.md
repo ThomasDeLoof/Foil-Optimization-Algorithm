@@ -53,7 +53,9 @@ The airfoil loader has a small fallback because AeroSandBox's NACA generator is 
 
 ### Aerodynamics
 
-The DE evaluation uses AeroBuildup — fast (≈ 0.5 s per call), good enough to run a 250-individual population over 60 generations in roughly ten minutes. AeroBuildup is purely additive and misses the wing → stab downwash interaction. We accept that during the search loop. The final design is checked with LiftingLine in a separate script (`refine_3d.py`), which captures induced drag and downwash properly. On the same geometry, switching from AeroBuildup to LiftingLine typically lowers the estimated drag by 30-40% and raises L/D from around 17 to around 24. What matters is that the relative ranking of candidate designs is preserved between the two — so the cheap solver picks the right shape and the expensive one gives the right numbers.
+The DE evaluation uses AeroBuildup — fast (≈ 0.5 s per call), good enough to run a 250-individual population over 60 generations in roughly ten minutes. AeroBuildup is purely additive and misses the wing → stab downwash interaction. We accept that during the search loop because the relative ranking of candidate designs is preserved between AeroBuildup and a fuller solver — so the cheap one is good for picking the shape. Once the DE has converged, the best design is automatically passed to a **3D trim refinement** using LiftingLine (downwash and induced drag computed properly): planform fixed, six trim angles re-optimised with Nelder-Mead (bounded), about 80 iterations, two more minutes. Switching from AeroBuildup to LiftingLine on the same geometry typically lowers the estimated drag by 30-40 % and raises L/D from around 17 to around 24 — that's the gap between "additive 2D" and "real 3D circulation" rather than an optimization failure.
+
+The old local L-BFGS-B polish on the DE result was dropped: gradient-based methods don't behave well on AeroBuildup's noisy stall transitions, and "polishing in 2D the wrong physics" wasted compute. The 3D refinement replaces it with something that's slower per evaluation but actually moves toward the real optimum.
 
 The objective is multi-point: `D_cruise + 0.3 · D_takeoff`. The takeoff weight (0.3) discourages designs that need huge induced drag to lift off, without overpowering the cruise term.
 
@@ -86,16 +88,16 @@ The root cross-section is modeled as a hollow elliptic carbon shell, 1.5 mm thic
 
 ### Scripts
 
-* `src/optFixedProfileV2.py` — main optimizer (Differential Evolution + L-BFGS-B polish), reports, XFLR5 XML export, plus a `.dat` for every airfoil used so XFLR5 picks them up automatically when you open the plane file
-* `src/calibrate_de_da.py` — one-shot empirical calibration of `de_da` against VLM, prints the slope and intercept to paste into V3
-* `src/optFixedProfileRefine3d.py` — runs LiftingLine on the DE solution and does a small Nelder-Mead refinement of the trim angles while keeping the planform fixed
+* `src/optFixedProfileV2.py` — main optimizer: Differential Evolution on 10 variables (planform + trim), followed automatically by 3D trim refinement (LiftingLine + Nelder-Mead with bounds). Produces the technical sheet, XFLR5 XML, and a `.dat` per wing section so XFLR5 picks the geometry up automatically.
+* `src/calibrate_de_da.py` — one-shot empirical calibration of `de_da` against VLM, prints the slope and intercept to paste into V2
+* `src/optFixedProfileRefine3d.py` — same refinement step, but standalone: re-loads the latest `x_best.npy` and runs LiftingLine post-processing on it. Useful to re-process a saved design or compare 2D vs 3D side by side. Called automatically by V2 at the end of every run, so usually you don't need to invoke it yourself.
 
 The intended workflow:
 
 ```bash
-python src/optFixedProfileV2.py                  # ~10 min — full DE on planform + trim
-python src/calibrate_de_da.py     # ~5 s — re-run if wing/stab dimensions change
-python src/optFixedProfileRefine3d.py           # ~2 min — 3D refinement of trim
+python src/optFixedProfileV2.py                  # ~12 min — DE + auto 3D refinement
+python src/calibrate_de_da.py                    # ~5 s — re-run if wing/stab dimensions change
+python src/optFixedProfileRefine3d.py            # optional — re-refine a previous run
 ```
 
 ### Scenarios
