@@ -368,9 +368,9 @@ def von_mises_root(chord_root: float, span: float,
 # ─────────────────────────────────────────────────────────────────────────────
 # Approximation du calcul de marge statique pour réduire le coût
 
-# la calibration empirique de DE_DA_SLOPE/INTERCEPT via VLM est implémentée
-from calibrate_de_da import calibrate as _calibrate_de_da
-DE_DA_SLOPE, DE_DA_INTERCEPT = _calibrate_de_da(verbose=True)
+# de_da par défaut 
+DE_DA_SLOPE     =  0.537
+DE_DA_INTERCEPT = -0.430
 
 def _cl_alpha_helmbold(AR: float) -> float:
     """
@@ -391,7 +391,7 @@ def neutral_point_ratio(wing: asb.Wing, stab: asb.Wing,
 
     CL_a_w = _cl_alpha_helmbold(AR_w)
     CL_a_s = _cl_alpha_helmbold(AR_s)
-    # de_da CALIBRÉ empiriquement via VLM.
+    # de_da  calibré empiriquement via VLM.
     de_da = DE_DA_SLOPE * fuselage_length + DE_DA_INTERCEPT
 
     # Centres aérodynamiques (frame avion, x=0 au BA emplanture aile)
@@ -404,6 +404,34 @@ def neutral_point_ratio(wing: asb.Wing, stab: asb.Wing,
     V_H = (stab.area() * l_t) / (wing.area() * mean_chord + 1e-12)
 
     return (X_ac_w / mean_chord) + V_H * (CL_a_s / CL_a_w) * (1.0 - de_da)
+
+
+# Calibration VLM 
+from calibrate_de_da import calibrate as _calibrate_de_da
+
+_CALIBRATION_CTX = {
+    "build_airplane":          build_airplane,
+    "atmosphere":              atmosphere,
+    "v_cruise":                cfg["v_cruise"],
+    "x_fuselage_start":        x_fuselage_start,
+    "stab_fuse_offset":        STAB_FUSE_OFFSET,
+    "fuselage_length_bounds":  phy["fuselage"]["length_bounds"],
+    "init_p_neutral": {
+        "cg_ratio":           0.40,
+        "wing_setting_angle": 0.0,
+        "twist":              -1.0,
+        "s_twist":            -2.0,
+        "alpha_to":            7.0,
+        "wing_span":          WING_SPAN,
+        "wing_root_chord":    WING_ROOT_CHORD,
+        "wing_tip_chord":     WING_TIP_CHORD,
+        "stab_span":          STAB_SPAN,
+        "stab_root_chord":    STAB_ROOT_CHORD,
+        "stab_tip_chord":     STAB_TIP_CHORD,
+    },
+}
+DE_DA_SLOPE, DE_DA_INTERCEPT = _calibrate_de_da(_CALIBRATION_CTX, verbose=True)
+
 
 # ── Pitch dynamics — métriques de stabilité physiquement parlantes ───────────
 #   - SM_lt = (X_np - X_cg) / l_t   → adimensionnel, scale-invariant
@@ -569,20 +597,10 @@ def objective(x: np.ndarray) -> float:
     S_stab  = stab.area()
     penalty = 0.0
 
-    # Portance croisière = poids (ÉGALITÉ).
-    # La croisière est un état stationnaire → L doit valoir W, pas seulement
-    # le dépasser. Si L > W le foil "monte" dans l'eau (pas d'équilibre vertical)
-    # et le drag calculé ici n'est PAS le drag à l'opération réelle.
-    # Soft penalty quadratique centrée sur W (lo = hi = WEIGHT).
+    # Portance croisière = poids
     penalty += K1 * soft_penalty(L, WEIGHT, WEIGHT, ref=WEIGHT)
 
     # Portance décollage : L_to ≥ poids + CL_to ≤ marge × CL_max_to.
-    # La marge encode la "forgiveness" du foil au décollage (différenciation
-    # par discipline) — remplace l'ancien area_target_range :
-    #   freeride / downwind : 0.55 (foil 2× plus gros que le min race)
-    #   windsurf race-frd   : 0.70
-    #   pumping             : 0.85 (on alle le CL_max — foil naturellement gros)
-    # Hard limit physique : CL_to ne doit jamais dépasser CL_max_to (stall).
     penalty += K1 * soft_penalty(L_to, WEIGHT, np.inf, ref=WEIGHT)
     cl_to_target = cfg["takeoff_cl_margin"] * CL_MAX_TO
     penalty += K1 * soft_penalty(CL_to, -np.inf, cl_to_target, ref=CL_MAX_TO)
@@ -606,11 +624,11 @@ def objective(x: np.ndarray) -> float:
         omega_n = pitch_frequency_hz(pd["Cm_alpha"], q_cruise, S_wing, mean_chord)
         f_lo, f_hi = get_pilot_freq_range()
         if np.isfinite(omega_n):
-            penalty += K2 * soft_penalty(omega_n, f_lo, f_hi, ref=0.5*(f_lo+f_hi))
+            penalty += K1 * soft_penalty(omega_n, f_lo, f_hi, ref=0.5*(f_lo+f_hi))
         else:
-            penalty += K2 * 4.0  # foil instable → forte pénalité
+            penalty += K1 * 4.0  # foil instable → forte pénalité
     except Exception:
-        penalty += K2
+        penalty += K1
 
     # ── Pénalités auxiliaires ────────────────────────────────
 
