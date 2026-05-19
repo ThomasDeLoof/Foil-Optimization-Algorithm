@@ -200,72 +200,33 @@ X_REF = np.clip(X_REF, LB, UB)
 # 4. CONSTRUCTION DE L'AVION
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _adaptive_tip_kick(c_root: float, c_tip: float, span: float,
-                       sweep_deg_local: float, N: int,
-                       sweep_power: float = 1.5,
-                       kick_start: float = 0.85,
-                       target_push: float = 0.020) -> float:
-    """
-    Amplitude du 'tip kick' (recul additionnel au 1/4 corde au saumon).
-
-    On veut que la section AVANT-DERNIÈRE (r_pen = (N-2)/(N-1)) atteigne
-    `target_push` au-delà du quart-corde naturel (profil sweep_power). À
-    r_pen, la smoothstep `ss(r_pen)` délivre `tip_kick_amount × ss`, donc :
-
-        push(r_pen) = push_natural(r_pen) + kick × ss(r_pen) = target_push
-        ⇒  kick = (target_push − push_natural) / ss(r_pen)
-
-    NB : version antérieure divisait par (1 − ss), ce qui faisait diverger
-    le kick quand ss(r_pen) → 1 (i.e. à grand N). Symptôme : x_le_tip ~2.8 m
-    au lieu de ~0.15 m pour N=150. Avec `/ ss`, le kick converge vers
-    target_push quand N → ∞ (push_natural → 0 et ss → 1).
-    """
-    if N < 2:
-        return 0.0
-    r_pen = (N - 2) / (N - 1)
-    delta_c = (c_root - c_tip) * np.sqrt(max(1 - r_pen ** 2, 0.0))
-    K       = (span / 2.0) * np.tan(np.radians(sweep_deg_local))
-    push_natural = K * (1.0 - r_pen ** sweep_power) - 0.75 * delta_c
-    if r_pen <= kick_start:
-        return max(0.0, target_push - push_natural)
-    s  = (r_pen - kick_start) / (1.0 - kick_start)
-    ss = s * s * (3.0 - 2.0 * s)
-    return max(0.0, (target_push - push_natural) / max(ss, 0.01))
-
-
 def build_airplane(p: dict) -> tuple:
     """
     Assemble l'aile, le fuselage, le mât et le stabilisateur AeroSandBox.
 
-    Aile principale : géométrie figée (scénario) + loi de corde existante.
-        twist_section = wing_setting_angle + twist * r
-    Stab : géométrie figée + twist uniforme = s_twist.
+    Géométrie : loi de corde elliptique + sweep en r^sweep_power + anhédral
+    (aile) ou dièdre (stab) en r^p_z. Le saumon est juste l'extrémité de ces
+    lois — pas de logique spéciale qui rallonge ou déforme la dernière
+    section.
     """
+    SWEEP_POWER_W = 1.5   # courbure du BA aile (1=linéaire, >1=courbé)
+    SWEEP_POWER_S = 1.5   # idem stab
+
     # ── Aile principale ──────────────────────────────────────────────────────
-    # Planform pure-elliptique + sweep non-linéaire + tip kick ADAPTATIF
     span_w  = p["wing_span"]
     root_w  = p["wing_root_chord"]
     tip_w   = min(p["wing_tip_chord"], root_w * 0.95)  # sécurité tip < root
-    sweep_power_w    = 1.5
-    tip_kick_start_w = 0.85
-    tip_kick_amount_w = _adaptive_tip_kick(root_w, tip_w, span_w, sweep_deg,
-                                           N_WING, sweep_power_w, tip_kick_start_w)
+    K_sweep_w = (span_w / 2) * np.tan(np.radians(sweep_deg))
 
     wing_xsecs = []
     for i in range(N_WING):
         r = i / (N_WING - 1)
 
         c_dist = tip_w + (root_w - tip_w) * np.sqrt(max(1 - r ** 2, 0))
+        x_qc   = (r ** SWEEP_POWER_W) * K_sweep_w
+        x_le   = x_qc + 0.25 * (root_w - c_dist)
 
-        kick_w = 0.0
-        if r > tip_kick_start_w:
-            s = (r - tip_kick_start_w) / (1.0 - tip_kick_start_w)
-            kick_w = tip_kick_amount_w * s * s * (3.0 - 2.0 * s)
-        x_qc = (r ** sweep_power_w) * span_w / 2 * np.tan(np.radians(sweep_deg)) + kick_w
-        x_le = x_qc + 0.25 * (root_w - c_dist)
-
-        z_pos = -((r ** 2) * span_w / 2) * np.tan(np.radians(wing_anhedral_deg)) \
-                - 0.020 * r ** 5
+        z_pos  = -((r ** 2) * span_w / 2) * np.tan(np.radians(wing_anhedral_deg))
 
         section_twist = p["wing_setting_angle"] + p["twist"] * r
 
@@ -308,23 +269,14 @@ def build_airplane(p: dict) -> tuple:
     stab_root_p = p["stab_root_chord"]
     stab_tip_p  = min(p["stab_tip_chord"], stab_root_p * 0.95)  # safety tip<root
     x_stab_root = x_fuselage_start + p["fuselage_length"] - STAB_FUSE_OFFSET
-    sweep_power_s    = 1.5
-    tip_kick_start_s = 0.65
-    tip_kick_amount_s = _adaptive_tip_kick(stab_root_p, stab_tip_p,
-                                           stab_span_p, STAB_SWEEP_DEG, N_STAB,
-                                           sweep_power_s, tip_kick_start_s)
+    K_sweep_s = (stab_span_p / 2) * np.tan(np.radians(STAB_SWEEP_DEG))
+
     stab_xsecs = []
     for i in range(N_STAB):
         r = i / (N_STAB - 1)
 
-        c_s = stab_tip_p + (stab_root_p - stab_tip_p) \
-              * np.sqrt(max(1 - r ** 2, 0))
-
-        kick_s = 0.0
-        if r > tip_kick_start_s:
-            s = (r - tip_kick_start_s) / (1.0 - tip_kick_start_s)
-            kick_s = tip_kick_amount_s * s * s * (3.0 - 2.0 * s)
-        x_qc_s = (r ** sweep_power_s) * stab_span_p / 2 * np.tan(np.radians(STAB_SWEEP_DEG)) + kick_s
+        c_s    = stab_tip_p + (stab_root_p - stab_tip_p) * np.sqrt(max(1 - r ** 2, 0))
+        x_qc_s = (r ** SWEEP_POWER_S) * K_sweep_s
         x_le_s = x_qc_s + 0.25 * (stab_root_p - c_s)
         z_s    = (r ** 1.5 * stab_span_p / 2) * np.tan(np.radians(STAB_DIHEDRAL_DEG))
 

@@ -32,9 +32,9 @@ wingfoil:
     - -45.0
     - -5.0
 
-  cg_range:                 # Position CG / corde moyenne (relâché : 0.50 saturait)
-    - 0.30                  # avant : pilotage précis
-    - 0.55                  # arrière : limite raisonnable (au-delà, F_stab explose)
+  cg_range:                 # Garde-fou numérique seulement — la pilotabilité
+    - 0.05                  # réelle est imposée par la cible ω_n, pas par CG.
+    - 0.95                  # Bornes très larges → CG choisi via moment + ω_n.
 
   cg_ratio_init: 0.38
 
@@ -82,9 +82,9 @@ windsurf:
     - -40.0
     - -8.0
 
-  cg_range:
-    - 0.20                  # Centrage plus avancé qu'en wingfoil (pied avant sur planche)
-    - 0.42
+  cg_range:                 # Garde-fou numérique — pilotabilité via ω_n.
+    - 0.05
+    - 0.95
 
   cg_ratio_init: 0.30
 
@@ -131,9 +131,9 @@ downwind:
     - -15.0
     - -1.0
 
-  cg_range:
-    - 0.18                  # Très avancé — pieds vers l'avant sur la board
-    - 0.30
+  cg_range:                 # Garde-fou numérique — pilotabilité via ω_n.
+    - 0.05
+    - 0.95
 
   cg_ratio_init: 0.23
 
@@ -182,9 +182,9 @@ pumping:
     - -10.0
     - -0.5
 
-  cg_range:
-    - 0.20
-    - 0.32
+  cg_range:                 # Garde-fou numérique — pilotabilité via ω_n.
+    - 0.05
+    - 0.95
 
   cg_ratio_init: 0.25
 
