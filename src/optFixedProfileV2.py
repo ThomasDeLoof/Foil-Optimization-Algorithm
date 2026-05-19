@@ -21,6 +21,25 @@ ROOT = Path(__file__).resolve().parent
 sys.path.append(str(ROOT))
 from config.water_atmosphere import Water as Atmosphere
 
+
+# ── Couleurs ANSI pour la console (auto-désactivées si non-TTY) ─────────────
+class C:
+    _ON = sys.stdout.isatty()
+    @classmethod
+    def _w(cls, code, t): return f"\033[{code}m{t}\033[0m" if cls._ON else t
+    @classmethod
+    def head(cls, t): return cls._w("1;36", t)    # cyan bold (titres)
+    @classmethod
+    def sec(cls, t):  return cls._w("36",   t)    # cyan (sections)
+    @classmethod
+    def ok(cls, t):   return cls._w("32",   t)    # vert
+    @classmethod
+    def warn(cls, t): return cls._w("33",   t)    # jaune
+    @classmethod
+    def dim(cls, t):  return cls._w("2",    t)    # gris/dim
+    @classmethod
+    def bold(cls, t): return cls._w("1",    t)    # gras
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. CONFIGURATION GLOBALE
 # ─────────────────────────────────────────────────────────────────────────────
@@ -348,20 +367,14 @@ _M_TOTAL    = phy["pilot"]["mass_kg"] + phy["board"]["mass_kg"] + rig_mass
 _R_GYR      = phy["pilot"].get("gyration_radius_m", 0.30)
 I_YY_SYSTEM = _M_TOTAL * _R_GYR ** 2
 
-# Niveau de pilotabilité actif (choisi dans parameters.yaml). Chaque scénario
-# définit ses propres plages ω_n par niveau dans scenarios.yaml#pilotability_freq.
-PILOT_LEVEL = phy["pilotability"]
+# Plage ω_n cible pour la discipline courante (calibrée freeride par scénario
+# dans scenarios.yaml). Un seul scope — pas de subdivision par niveau pilote.
+PILOT_FREQ_LO, PILOT_FREQ_HI = cfg["pilotability_freq"]
 
 
 def get_pilot_freq_range() -> tuple:
-    """Retourne (f_lo, f_hi) du niveau actif, pour le scénario courant."""
-    try:
-        return tuple(cfg["pilotability_freq"][PILOT_LEVEL])
-    except KeyError:
-        raise ValueError(
-            f"Niveau pilotabilité '{PILOT_LEVEL}' non défini pour le scénario "
-            f"'{CASE}'. Niveaux disponibles : {list(cfg.get('pilotability_freq', {}).keys())}"
-        )
+    """Retourne (f_lo, f_hi) — la cible ω_n du scénario courant."""
+    return PILOT_FREQ_LO, PILOT_FREQ_HI
 
 
 def pitch_frequency_hz(Cm_alpha: float, q: float, S: float, c_ref: float) -> float:
@@ -583,17 +596,16 @@ DE_PARAMS = {
 
 
 def _de_callback(_xk: np.ndarray, convergence: float) -> bool:
-    """
-    Affichage léger toutes les 5 générations.
-    Attention ne ré-évalue PAS objective(xk) (ça doublerait le coût des gens)
-    """
+    """Affichage léger toutes les 5 générations (sans ré-évaluer xk)."""
     _run_counter["n"] += 1
     gen = _run_counter["n"]
     if gen % 5 != 0:
         return False
     pct = min(gen / DE_PARAMS["maxiter"] * 100.0, 100.0)
-    bar = "█" * int(pct / 10) + "░" * (10 - int(pct / 10))
-    print(f"    G{gen:3d} [{bar}] {pct:4.0f}%  conv={convergence:.2e}")
+    n_full = int(pct / 10)
+    bar = "█" * n_full + "░" * (10 - n_full)
+    print(f"    G{gen:3d} {C.sec('[' + bar + ']')} {pct:4.0f}%   "
+          f"{C.dim(f'conv = {convergence:.2e}')}")
     return False
 
 
@@ -626,18 +638,22 @@ def _heuristic_starts() -> list:
 
 
 def run_multistart(n_starts: int = 1) -> np.ndarray:
-    print(f"\n{'='*65}")
-    print(f"  MULTI-START DE — {n_starts} runs | {CASE.upper()}")
-    print(f"  Profil aile : {WING_AIRFOIL_NAME}    Profil stab : {STAB_AIRFOIL_NAME}")
-    print(f"  Init aile (warm-start) : b={WING_SPAN*100:.0f} cm  "
-          f"c_R/T={WING_ROOT_CHORD*1000:.0f}/{WING_TIP_CHORD*1000:.0f} mm ")
-    print(f"  Init stab : b={STAB_SPAN*100:.0f} cm  "
-          f"c_R/T={STAB_ROOT_CHORD*1000:.0f}/{STAB_TIP_CHORD*1000:.0f} mm")
-    print(f"  N_VAR={N_VAR}  pop={DE_PARAMS['popsize']*N_VAR}  gen={DE_PARAMS['maxiter']}")
-    print(f"{'='*65}")
+    HBAR = "═" * 70
+    print()
+    print(C.head(HBAR))
+    print(C.head(f"  HYDROFOIL OPTIMIZATION  ·  {CASE.upper()} freeride"))
+    print(f"  {C.dim('Aile')}  {WING_AIRFOIL_NAME:<10}  warm-start "
+          f"{WING_SPAN*100:5.1f} cm  /  {WING_ROOT_CHORD*1000:.0f} mm root")
+    print(f"  {C.dim('Stab')}  {STAB_AIRFOIL_NAME:<10}  warm-start "
+          f"{STAB_SPAN*100:5.1f} cm  /  {STAB_ROOT_CHORD*1000:.0f} mm root")
+    _pop  = DE_PARAMS["popsize"] * N_VAR
+    _gen  = DE_PARAMS["maxiter"]
+    _runs = f"{n_starts} run" + ("s" if n_starts > 1 else "")
+    print(f"  {C.dim(f'{N_VAR} vars · pop={_pop} · gen={_gen} · {_runs}')}")
+    print(C.head(HBAR))
 
     val_ref = objective(X_REF)
-    print(f"\n  Référence (centre des bornes) : obj={val_ref:.1f} N\n")
+    print(f"\n  {C.dim('Référence (centre des bornes) :')}  obj = {val_ref:.1f} N\n")
 
     heuristics = _heuristic_starts()
     best_x     = X_REF.copy()
@@ -658,7 +674,7 @@ def run_multistart(n_starts: int = 1) -> np.ndarray:
             if k < pop_size:
                 init_pop[k] = s
 
-        print(f"  ─── Run {run_idx + 1}/{n_starts} ───")
+        print(C.sec(f"  ── Run {run_idx + 1}/{n_starts} " + "─" * (55 - len(str(run_idx+1)) - len(str(n_starts)))))
         result = differential_evolution(
             objective, BOUNDS,
             init=init_pop, seed=seed,
@@ -676,32 +692,35 @@ def run_multistart(n_starts: int = 1) -> np.ndarray:
             disp=False,
         )
 
-        status = "✓" if result.success else "~"
-        print(f"  {status} Run {run_idx+1} : obj={result.fun:.1f} N", end="")
+        mark = C.ok("✓") if result.success else C.warn("~")
+        line = f"  {mark} Run {run_idx+1} terminé   obj = {result.fun:.1f} N"
         if result.fun < best_val:
             best_val = result.fun
             best_x   = result.x.copy()
-            print("  ★ nouveau meilleur")
+            print(line + "   " + C.bold(C.ok("★ nouveau meilleur")))
         else:
-            print()
+            print(line)
 
     # ── Affinage 3D (LiftingLine + Nelder-Mead borné) ────────────────────────
     # LiftingLine capture le downwash et le induced drag, ce qui re-trimme correctement les angles
+    print()
+    print(C.sec("  ── Raffinage 3D " + "─" * 53))
     try:
         import optFixedProfileRefine3d as R3
-        print(f"\n  Raffinage 3D (LiftingLine, planform fixée) depuis le meilleur DE ({best_val:.1f} N)...")
+        print(f"  LiftingLine (planform fixée) depuis le meilleur DE  "
+              f"{C.dim(f'(obj DE = {best_val:.1f} N)')}")
         best_x_clipped = np.clip(best_x, LB, UB)
         x_refined, J_refined, n_iter = R3.refine_trim_3d(best_x_clipped, maxiter=80)
         # Comparer : on évalue x_refined en cohérence avec l'objective DE (AB),
         # pour décider si on garde le raffinage 3D ou la solution DE pure.
         val_refined_ab = objective(x_refined)
-        print(f"  ✓ Raffinage 3D : {n_iter} itérations, coût 3D = {J_refined:.1f} N, "
-              f"coût 2D-équivalent = {val_refined_ab:.1f} N")
+        print(f"  {C.ok('✓')} {n_iter} itérations   J_3D = {J_refined:.1f} N   "
+              f"{C.dim(f'(2D-équivalent = {val_refined_ab:.1f} N)')}")
         # On garde TOUJOURS x_refined : c'est la solution 3D physiquement correcte,
         # même si son score "AeroBuildup" est moins bon (AB sous-estime L à α bas).
         best_x = x_refined
     except Exception as e:
-        print(f"  ~ Raffinage 3D échec ({type(e).__name__}: {str(e)[:80]}) — fallback solution DE")
+        print(f"  {C.warn('~')} échec ({type(e).__name__}: {str(e)[:60]}) — fallback solution DE")
         best_x = np.clip(best_x, LB, UB)
 
     return best_x
@@ -714,11 +733,11 @@ def run_multistart(n_starts: int = 1) -> np.ndarray:
 def next_output_dir(suffix: str = "", out_root: str = "outputs") -> str:
     """
     Construit le prochain dossier de sortie au format :
-        outputs/{case}_{level}_{YYYYMMDD}_{NN}/
+        outputs/{case}_{YYYYMMDD}_{NN}/
     NN s'incrémente automatiquement par jour
     """
     today = dt.datetime.now().strftime("%Y%m%d")
-    prefix = f"{CASE}_{PILOT_LEVEL}_{today}"
+    prefix = f"{CASE}_{today}"
     os.makedirs(out_root, exist_ok=True)
     suffix_re = re.escape("_" + suffix) if suffix else ""
     pat = re.compile(rf"^{re.escape(prefix)}_(\d+){suffix_re}$")
@@ -783,66 +802,96 @@ def full_report(x: np.ndarray) -> None:
     sigma_vm        = von_mises_root(p["wing_root_chord"], p["wing_span"],
                                      load_factor=LOAD_PEAK_FACTOR)
 
-    print(f"\n{'='*65}")
-    print(f"  RÉSULTAT FINAL — {CASE.upper()}  (V3 Paramétrique)")
-    print(f"{'='*65}")
-    print(f"  Aile (optimisée) : {WING_AIRFOIL_NAME}  b={p['wing_span']*100:.0f} cm  "
-          f"c_R/T={p['wing_root_chord']*1000:.0f}/{p['wing_tip_chord']*1000:.0f} mm")
-    print(f"  Stab (figé)      : {STAB_AIRFOIL_NAME}  b={STAB_SPAN*100:.0f} cm  "
-          f"c_R/T={STAB_ROOT_CHORD*1000:.0f}/{STAB_TIP_CHORD*1000:.0f} mm")
-    print(f"  {'─'*55}")
-    print(f"  Traînée croisière: {D_total:6.2f} N    Finesse L/D : {L/D_total:5.2f}")
-    print(f"  Traînée décollage: {D_to:6.2f} N    (multi-point objective w·D_to)")
-    print(f"  α cruise / α to  : {p['alpha_cruise']:5.2f}° / {p['alpha_to']:5.2f}°")
-    print(f"  Calage aile      : {p['wing_setting_angle']:5.2f}°    Twist : {p['twist']:5.2f}°")
-    print(f"  Calage stab      : {p['s_twist']:5.2f}°")
-    print(f"  Fuselage         : {p['fuselage_length']*100:5.1f} cm   CG : {p['cg_ratio']*100:5.1f} % c̄")
-    print(f"  {'─'*55}")
-    print(f"  Surface aile     : {wing.area()*1e4:5.0f} cm²   AR : {AR_w:.2f}")
-    print(f"  Surface stab     : {stab.area()*1e4:5.0f} cm²   AR : {AR_s:.2f}")
-    # Pilotabilité : ω_n (Hz) — vraie raideur ressentie par le pilote
-    f_lo, f_hi = get_pilot_freq_range()
-    pilot_lvl = PILOT_LEVEL
-    omega_str = f"{omega_n:5.2f} Hz" if np.isfinite(omega_n) else " UNSTABLE"
-    print(f"  Pilotabilité     : ω_n = {omega_str}   "
-          f"(niveau '{pilot_lvl}' / {CASE} → [{f_lo:.1f}–{f_hi:.1f}] Hz)")
-    # SM/l_t (scale-invariant) en métrique principale + Cm_α + SM/c̄ legacy.
-    print(f"  Stabilité tangage: SM_lt = {pd['SM_lt']*100:5.1f} %  (gap NP-CG = {pd['SM_abs']*1000:5.1f} mm)")
-    print(f"                     Cm_α  = {pd['Cm_alpha']:6.2f} rad⁻¹    SM/c̄ (legacy) {pd['SM_chord']*100:5.1f} %")
-    print(f"  Volume de queue  : {v_h:5.3f}        (cible [{cfg['vh_range'][0]:.2f}–{cfg['vh_range'][1]:.2f}])")
+    # ── Métriques dérivées pour l'affichage ─────────────────────────────────
+    f_lo, f_hi   = get_pilot_freq_range()
+    Cp_min       = -(1.2 * abs(CL) + 3.0 * WING_THICKNESS_REL)
+    M_tol        = 0.05 * WEIGHT * mean_chord
     cl_to_target = cfg["takeoff_cl_margin"] * CL_MAX_TO
-    print(f"  L décollage      : {L_to:6.1f} / {WEIGHT:.1f} N   "
-          f"CL_to : {CL_to:.3f} / {cl_to_target:.3f} (cible)  / {CL_MAX_TO} (stall)")
-    print(f"  Moment résiduel  : {M_total:.3f} N·m   Force stab : {F_stab:.1f} N")
-    print(f"  Von Mises root   : pic dyn (×{LOAD_PEAK_FACTOR:.1f}g) {sigma_vm/1e6:.1f} MPa  "
-          f"| statique {sigma_vm_static/1e6:.1f} MPa  "
-          f"| admissible fatigue {SIGMA_ADMISSIBLE/1e6:.0f} MPa  (σ_ult {SIGMA_ULTIMATE/1e6:.0f})")
+    Re_root      = rho * cfg["v_cruise"] * p["wing_root_chord"] / mu
+    Re_tip       = rho * cfg["v_cruise"] * p["wing_tip_chord"]  / mu
+    vh_lo, vh_hi = cfg["vh_range"]
 
-    # ── Récap des contraintes ───────────────────────────────────────────────
-    Cp_min   = -(1.2 * abs(CL) + 3.0 * WING_THICKNESS_REL)
-    print(f"  σ_v cavitation   : {SIGMA_CAV:.2f} / Cp_min   : {Cp_min:.2f} ")
-    M_tol    = 0.05 * WEIGHT * mean_chord
-    omega_ok = np.isfinite(omega_n) and (f_lo <= omega_n <= f_hi)
+    HBAR = "═" * 70
+    def SEC(title):
+        return C.sec(f"  ── {title} " + "─" * max(0, 60 - len(title)))
+
+    print()
+    print(C.head(HBAR))
+    print(C.head(f"  RÉSULTAT  ·  {CASE.upper()} freeride"))
+    print(C.head(HBAR))
+
+    # ── Géométrie ──
+    print(SEC("Géométrie"))
+    print(f"    Aile      {WING_AIRFOIL_NAME:<10}  span {p['wing_span']*100:5.1f} cm   "
+          f"root/tip {p['wing_root_chord']*1000:3.0f}/{p['wing_tip_chord']*1000:2.0f} mm   AR {AR_w:5.2f}")
+    print(f"    Stab      {STAB_AIRFOIL_NAME:<10}  span {p['stab_span']*100:5.1f} cm   "
+          f"root/tip {p['stab_root_chord']*1000:3.0f}/{p['stab_tip_chord']*1000:2.0f} mm   AR {AR_s:5.2f}")
+    vh_target = f"cible {vh_lo:.2f}-{vh_hi:.2f}"
+    print(f"    Fuselage  {p['fuselage_length']*100:5.1f} cm    CG {p['cg_ratio']*100:5.1f} % c̄    "
+          f"V_h {v_h:.3f}  {C.dim('(' + vh_target + ')')}")
+
+    # ── Trim ──
+    print(SEC("Trim"))
+    print(f"    α cruise    {p['alpha_cruise']:+6.2f}°    "
+          f"α décollage   {p['alpha_to']:+6.2f}°")
+    print(f"    Calage aile {p['wing_setting_angle']:+6.2f}°    Twist        {p['twist']:+6.2f}°    "
+          f"Calage stab {p['s_twist']:+6.2f}°")
+
+    # ── Performances ──
+    print(SEC("Performances"))
+    print(f"    L cruise        {L:7.1f} N   {C.dim(f'/ {WEIGHT:.1f} N poids')}")
+    print(f"    D aero          {D:7.2f} N   {C.dim(f'+ D_mât {D_MAST:5.2f} N = {D_total:6.2f} N')}")
+    print(f"    {C.bold(f'L/D total       {L/D_total:7.2f}')}   {C.dim(f'(wing-only {L/D:.2f})')}")
+    cl_to_info = f"≤ {cl_to_target:.3f} cible / {CL_MAX_TO} stall"
+    print(f"    L décollage     {L_to:7.1f} N   D_to {D_to:5.2f} N   "
+          f"CL_to {CL_to:.3f}  {C.dim(cl_to_info)}")
+    print(f"    Re emplanture   {Re_root:.2e}   {C.dim(f'Re saumon {Re_tip:.2e}')}")
+
+    # ── Pilotabilité & stabilité ──
+    print(SEC("Pilotabilité & stabilité"))
+    omega_str  = f"{omega_n:5.2f} Hz" if np.isfinite(omega_n) else "UNSTABLE"
+    omega_ok   = np.isfinite(omega_n) and (f_lo <= omega_n <= f_hi)
+    omega_mark = C.ok("✓") if omega_ok else C.warn("⚠")
+    omega_dim  = f"cible freeride {f_lo:.1f}-{f_hi:.1f} Hz"
+    print(f"    ω_n           {omega_str}   {C.dim(omega_dim)}   {omega_mark}")
+    np_gap = pd["SM_abs"] * 1000
+    print(f"    Cm_α          {pd['Cm_alpha']:+6.2f} rad⁻¹    SM/l_t  {pd['SM_lt']*100:5.1f} %    "
+          f"{C.dim(f'(gap NP-CG {np_gap:.1f} mm)')}")
+    m_mark = C.ok("✓") if abs(M_total) <= M_tol else C.warn("⚠")
+    print(f"    Moment résid. {M_total:+6.2f} N·m   {C.dim(f'tol ±{M_tol:.2f}')}   {m_mark}")
+    print(f"    Force stab    {F_stab:+6.1f} N")
+
+    # ── Structure & cavitation ──
+    print(SEC("Structure & cavitation"))
+    s_mark = C.ok("✓") if sigma_vm <= SIGMA_ADMISSIBLE else C.warn("⚠")
+    print(f"    σ_VM pic      {sigma_vm/1e6:6.1f} MPa   "
+          f"{C.dim(f'≤ {SIGMA_ADMISSIBLE/1e6:.0f} fatigue')}   {s_mark}")
+    print(f"    σ_VM statique {sigma_vm_static/1e6:6.1f} MPa   "
+          f"{C.dim(f'≤ {SIGMA_ULTIMATE/1e6:.0f} rupture (σ_ult)')}")
+    cav_mark = C.ok("✓") if Cp_min >= -SIGMA_CAV else C.warn("⚠")
+    print(f"    Cp_min        {Cp_min:+6.2f}        "
+          f"{C.dim(f'≥ {-SIGMA_CAV:.2f} σ_v cavitation')}   {cav_mark}")
+
+    # ── Contraintes ──
     checks = [
-        ("L_cruise ≥ poids",        L     >= 0.99 * WEIGHT),
-        ("L_takeoff ≥ poids",       L_to  >= 0.99 * WEIGHT),
-        ("CL_takeoff ≤ CL_max (stall)", CL_to <= CL_MAX_TO + 1e-3),
-        (f"CL_takeoff ≤ {cfg['takeoff_cl_margin']:.0%}·CL_max (marge {CASE})",
-                                    CL_to <= cl_to_target + 1e-3),
-        ("|M_total| ≤ 5% M_ref",    abs(M_total) <= M_tol),
-        (f"ω_n dans '{pilot_lvl}' [{f_lo:.1f}-{f_hi:.1f}] Hz", omega_ok),
-        ("Cavitation OK",           Cp_min >= -SIGMA_CAV),
-        ("σ_VM pic ≤ σ_fatigue",    sigma_vm <= SIGMA_ADMISSIBLE),
-        ("V_h dans cible",          cfg["vh_range"][0] <= v_h <= cfg["vh_range"][1]),
-        ("α_cruise ≥ -1°",          p["alpha_cruise"] >= -1.0),
+        ("L cruise ≥ poids",                 L     >= 0.99 * WEIGHT, ""),
+        ("L décollage ≥ poids",              L_to  >= 0.99 * WEIGHT, f"{L_to:.1f} / {WEIGHT:.1f} N"),
+        ("CL_to ≤ CL_max (stall)",           CL_to <= CL_MAX_TO + 1e-3, f"{CL_to:.3f} / {CL_MAX_TO}"),
+        (f"CL_to ≤ {cfg['takeoff_cl_margin']:.0%} CL_max ({CASE})",
+                                              CL_to <= cl_to_target + 1e-3, f"{CL_to:.3f} / {cl_to_target:.3f}"),
+        ("|M_total| ≤ 5 % M_ref",            abs(M_total) <= M_tol, f"{M_total:+.2f} vs ±{M_tol:.2f} N·m"),
+        ("ω_n dans cible freeride",          omega_ok, f"{omega_n:.2f} vs [{f_lo:.1f}-{f_hi:.1f}] Hz"),
+        ("Cavitation OK",                    Cp_min >= -SIGMA_CAV, ""),
+        ("σ_VM pic ≤ σ_fatigue",             sigma_vm <= SIGMA_ADMISSIBLE, f"{sigma_vm/1e6:.0f} / {SIGMA_ADMISSIBLE/1e6:.0f} MPa"),
+        ("V_h dans cible",                   cfg["vh_range"][0] <= v_h <= cfg["vh_range"][1], f"{v_h:.3f}"),
+        ("α_cruise ≥ -1°",                   p["alpha_cruise"] >= -1.0, f"{p['alpha_cruise']:+.2f}°"),
     ]
-    print(f"  {'─'*55}")
-    n_ok = sum(1 for _, ok in checks if ok)
-    print(f"  Validation : {n_ok}/{len(checks)} contraintes satisfaites")
-    for name, ok in checks:
-        mark = "✓" if ok else "⚠"
-        print(f"    {mark}  {name}")
-    print(f"{'='*65}\n")
+    n_ok = sum(1 for _, ok, _ in checks if ok)
+    print(SEC(f"Contraintes  ({n_ok}/{len(checks)})"))
+    for name, ok, detail in checks:
+        mark = C.ok("✓") if ok else C.warn("⚠")
+        suffix = f"   {C.dim(detail)}" if (not ok and detail) else ""
+        print(f"    {mark}  {name}{suffix}")
 
     # ── Export ───────────────────────────────────────────────────────────────
     # Naming : outputs/{case}_{level}_{date}_{NN}/  (compteur quotidien)
@@ -852,7 +901,7 @@ def full_report(x: np.ndarray) -> None:
 
     _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
                F_stab, v_h, M_total, L_to, CL_to, rho, mu, X_cg, AR_w, AR_s,
-               sigma_vm, sigma_vm_static, pd, omega_n, pilot_lvl, f_lo, f_hi)
+               sigma_vm, sigma_vm_static, pd, omega_n, f_lo, f_hi)
 
     # ── Export XFLR5 + profils .dat — méthode V1 (la seule qui marche en pratique).
     # On RENOMME chaque section avec un nom unique (wing_sec_0, ...) et on écrit
@@ -892,6 +941,11 @@ def full_report(x: np.ndarray) -> None:
     _rename_and_export(airplane.wings[1].xsecs, "stab")
     _rename_and_export(mast_obj.xsecs,          "mast")
 
+    # ── Bloc Exports ─────────────────────────────────────────────────────────
+    print(SEC("Exports"))
+    print(f"    {C.ok('✓')} Fiche      {C.dim(out_dir + '/fiche_technique.md')}")
+    print(f"    {C.ok('✓')} Profils    {C.dim(airfoils_dir + '/')}")
+
     # XML XFLR5 — les noms d'airfoils des xsecs viennent d'être renommés
     xml_path = os.path.join(out_dir, f"{run_tag}_plane.xml")
     try:
@@ -904,15 +958,13 @@ def full_report(x: np.ndarray) -> None:
             fuselages=[fuselage_obj],
             xyz_ref=airplane.xyz_ref,
         ).export_XFLR5_xml(xml_path)
-        print(f"  ✓ XML XFLR5       : {xml_path}")
+        print(f"    {C.ok('✓')} XML XFLR5  {C.dim(xml_path)}")
     except Exception as e:
-        print(f"  ~ XML XFLR5 non exporté : {e}")
-    print(f"  ✓ Profils .dat    : {airfoils_dir}/")
-    print(f"  ✓ Fiche technique : {out_dir}/fiche_technique.md")
+        print(f"    {C.warn('~')} XML XFLR5 non exporté : {e}")
 
     # Sauvegarde du X optimal pour refine_3d.py (load auto)
     np.save(os.path.join(out_dir, "x_best.npy"), x)
-    print(f"  ✓ X optimal       : {out_dir}/x_best.npy")
+    print(f"    {C.ok('✓')} x_best     {C.dim(out_dir + '/x_best.npy')}")
 
     # ── Rapport des bornes saturées ─────────────────────────────────────────
     VAR_NAMES = ["fuselage_length", "cg_ratio", "wing_setting_angle", "twist",
@@ -928,13 +980,18 @@ def full_report(x: np.ndarray) -> None:
         elif hi - x[i] < TOL * width:
             saturated.append(f"{VAR_NAMES[i]} ↑ {hi:.3g}")
     if saturated:
-        print(f"\n  ⚠ Bornes saturées ({len(saturated)}) : {', '.join(saturated)}")
-        print(f"    → Considérer relâcher ces bornes pour explorer plus loin.\n")
+        print()
+        print(SEC(f"Bornes saturées  ({len(saturated)})"))
+        for s in saturated:
+            print(f"    {C.warn('⚠')}  {s}")
+        print(C.dim("       → relâcher ces bornes pour explorer plus loin"))
+    print(C.head(HBAR))
+    print()
 
 
 def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
                F_stab, v_h, M_total, L_to, CL_to, rho, mu, X_cg, AR_w, AR_s,
-               sigma_vm, sigma_vm_static, pd, omega_n, pilot_lvl, f_lo, f_hi):
+               sigma_vm, sigma_vm_static, pd, omega_n, f_lo, f_hi):
     now_str = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     Re_root = rho * cfg["v_cruise"] * p["wing_root_chord"] / mu
     Re_tip  = rho * cfg["v_cruise"] * p["wing_tip_chord"]  / mu
@@ -992,7 +1049,7 @@ def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
         "## 5. Pilotabilité, Stabilité & Structure", "",
         "| Paramètre | Valeur | Cible |", "|:---|:---|:---|",
         f"| **ω_n** (fréquence pitch, Hz) | {omega_n:.2f} Hz" if np.isfinite(omega_n) else "| **ω_n** | UNSTABLE",
-        f"|         | | '{pilot_lvl}' [{f_lo:.1f}–{f_hi:.1f}] Hz |",
+        f"|         | | cible freeride [{f_lo:.1f}–{f_hi:.1f}] Hz |",
         f"| Cm_α (raideur tangage, rad⁻¹) | {pd['Cm_alpha']:.2f} | (info, <0 = stable) |",
         f"| SM/l_t (scale-invariant) | {pd['SM_lt']*100:.1f}% | typique aviation 10-25% |",
         f"| Gap NP-CG (absolu) | {pd['SM_abs']*1000:.1f} mm | — |",
@@ -1011,7 +1068,7 @@ def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
     if not np.isfinite(omega_n):
         warn.append(f"⚠️ Foil INSTABLE (Cm_α > 0) — pilote ne peut pas le maintenir au trim")
     elif not (f_lo <= omega_n <= f_hi):
-        warn.append(f"⚠️ ω_n {omega_n:.2f} Hz hors cible '{pilot_lvl}' [{f_lo:.1f}–{f_hi:.1f}] Hz")
+        warn.append(f"⚠️ ω_n {omega_n:.2f} Hz hors cible freeride [{f_lo:.1f}–{f_hi:.1f}] Hz")
     if L_to < WEIGHT * 0.98:
         warn.append(f"⚠️ Portance décollage insuffisante : {L_to:.1f} / {WEIGHT:.1f} N")
     if CL_to > CL_MAX_TO:

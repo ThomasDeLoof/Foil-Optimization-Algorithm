@@ -87,16 +87,16 @@ With this new fatigue-based criterion, AR 12 sits at the limit, AR 15 and above 
 
 ### Scenarios
 
-Four scenarios share the same code path: `wingfoil`, `windsurf`, `downwind`, `pumping`. Each one sets its own velocities, mass of the rig, area target range, allowable CG range, achievable SM range, wing airfoil, and stab dimensions. Switching scenario is a one-line edit (`case:` in `parameters.yaml`). The wingfoil case is the most extensively tuned and the one to start from.
+Four scenarios share the same code path: `wingfoil`, `windsurf`, `downwind`, `pumping`. Each one sets its own velocities, rig mass, takeoff CL margin, stab geometry, wing airfoil and ω_n target. Every scenario is tuned for a **performant freeride foil** — polyvalent, accessible, calibrated on the industry reference for that discipline (no separate "beginner" or "race" variants, that turned out to require independent rework of velocities and trim envelopes that the level concept didn't actually provide). Switching scenario is a one-line edit (`case:` in `parameters.yaml`).
 
-Three pilotability levels — **débutant**, **intermédiaire**, **avancé** — and each *scenario* has its own $\omega_n$ range per level, because advanced on a $13 m/s$ windsurf race foil isn't the same physical feeling as advanced on a $6 m/s$ pumping wing. The active level is picked once globally in `parameters.yaml` (`pilotability: "intermédiaire"`), and each scenario's `pilotability_freq` table maps it to a target range in Hz:
+Each scenario carries a single ω_n target range, picked so that the foil "feels" right for its discipline at cruise speed:
 
-| Scenario | débutant | intermédiaire | avancé |
-|---|---|---|---|
-| wingfoil | 1.5–2.2 Hz | 2.2–3.0 Hz | 3.0–4.0 Hz |
-| windsurf | 2.0–2.8 Hz | 2.8–3.8 Hz | 3.8–5.5 Hz |
-| downwind | 1.3–1.8 Hz | 1.8–2.5 Hz | 2.5–3.5 Hz |
-| pumping | 0.8–1.3 Hz | 1.3–1.9 Hz | 1.9–2.8 Hz |
+| Scenario | ω_n target | Justification |
+|---|---|---|
+| wingfoil | 2.2–3.0 Hz | freeride freestyle, polyvalent |
+| windsurf | 2.8–3.8 Hz | race-freeride, q haut à 13 m/s rend le foil naturellement réactif |
+| downwind | 1.8–2.5 Hz | glisse longue sur houle, foil "doux à pomper" |
+| pumping  | 1.3–1.9 Hz | cycles d'effort basse vitesse, le foil doit porter le pilote |
 
 ## Outputs
 

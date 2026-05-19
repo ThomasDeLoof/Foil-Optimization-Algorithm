@@ -271,7 +271,6 @@ def export_refined(x: np.ndarray) -> str:
     now_disp = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     sm_chord_str = f"{pd['SM_chord']*100:.1f}%" if np.isfinite(pd['SM_chord']) else "n/a"
     omega_str = f"{omega_n:.2f} Hz" if np.isfinite(omega_n) else "UNSTABLE"
-    pilot_lvl = V2.PILOT_LEVEL
     f_lo, f_hi = V2.get_pilot_freq_range()
     lines = [
         f"# Fiche Technique — {V2.CASE.upper()}  |  REFINEMENT 3D (LiftingLine)",
@@ -311,7 +310,7 @@ def export_refined(x: np.ndarray) -> str:
         "", "---", "",
         "## 3. Pilotabilité, Stabilité & Structure", "",
         "| Paramètre | Valeur | Cible |", "|:---|:---|:---|",
-        f"| **ω_n** (fréquence pitch) | **{omega_str}** | '{pilot_lvl}' [{f_lo:.1f}–{f_hi:.1f}] Hz |",
+        f"| **ω_n** (fréquence pitch) | **{omega_str}** | freeride [{f_lo:.1f}–{f_hi:.1f}] Hz |",
         f"| Cm_α (raideur tangage) | {pd['Cm_alpha']:.2f} rad⁻¹ | < 0 = stable |",
         f"| SM/l_t (scale-invariant) | {pd['SM_lt']*100:.1f}% | typique aviation 10-25% |",
         f"| Gap NP-CG (absolu) | {pd['SM_abs']*1000:.1f} mm | — |",

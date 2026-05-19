@@ -12,15 +12,15 @@ case: "windsurf"
 
 
 # -----------------------------------------------------------------------------
-# PILOTABILITÉ
+# PILOTE + PLANCHE — système porté par le foil
+# -----------------------------------------------------------------------------
+# La cible de pilotabilité (ω_n) est définie par discipline dans scenarios.yaml
+# — toutes calibrées pour un foil performant freeride.
 # -----------------------------------------------------------------------------
 pilot:
   mass_kg: 75
   gyration_radius_m: 0.30   # Rayon de giration du système pilote+board+rig
                             # (debout sur planche → ~30 cm). Utilisé pour I_yy.
-
-# Options : "débutant", "intermédiaire", "avancé"
-pilotability: "avancé"
 
 board:
   mass_kg: 6              # Planche (composite, taille standard)
@@ -105,7 +105,7 @@ mast:
   profile: "naca0012"               # Profil mince (à voir possibilités d'usinage et solidité)
                                     
   x_position: 0.25                  # 25 cm derrière le BA aile (position standard)
-  cd: 0.01                          # Cd cohérent avec profil mince à Re ~1.5e6
+  cd: 0.007                          # Cd cohérent avec profil mince à Re ~1.5e6
                       
   n_sections: 4
 

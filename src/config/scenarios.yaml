@@ -1,14 +1,15 @@
 # =============================================================================
 # scenarios.yaml — Contraintes aérodynamiques par discipline
 # =============================================================================
-#   - Contraintes larges = l'optimiseur explore librement
-#   - Orientation freeride dans tous les cas (pas de vitesse pure)
+#   - Toutes les disciplines visent un foil "performant freeride" : polyvalent,
+#     accessible, calibré sur les modèles industriels de référence.
+#   - Pas de subdivision par niveau pilote : une seule plage ω_n par discipline.
 # =============================================================================
 
 
 # -----------------------------------------------------------------------------
 # WINGFOIL FREERIDE
-# Référence : AFS Enduro 1100 (1100 cm², finesse ~15, SM 50-70%)
+# Référence : AXIS BSC 890 (1290 cm², AR 6.43)
 # -----------------------------------------------------------------------------
 wingfoil:
   v_takeoff: 5.5            # m/s — décollage freeride accessible (9.7 kts)
@@ -21,12 +22,8 @@ wingfoil:
     - 0.013
     - 0.026
 
-  # Pilotabilité — ω_n cible par niveau (Hz). Le niveau actif est choisi dans
-  # parameters.yaml. Wingfoil freeride = mode polyvalent, plage modérée.
-  pilotability_freq:
-    débutant:      [1.5, 2.2]    # Hz — très stable, parfait apprentissage
-    intermédiaire: [2.2, 3.0]    # Hz — équilibré freeride (défaut)
-    avancé:        [3.0, 4.0]    # Hz — réactif, demande de l'expérience
+  # Pilotabilité — ω_n cible (Hz) pour un foil freeride équilibré.
+  pilotability_freq: [2.2, 3.0]
 
   stab_load_range:          # Force stab (N, négatif = déportance)
     - -45.0
@@ -51,9 +48,7 @@ wingfoil:
 
   # Foil de référence : AXIS BSC 890 (1290 cm², AR 6.43, max chord 170 mm)
   # Stab compagnon : AXIS Skinny 365/55 (168 cm², AR 8.06)
-  wing_airfoil:         "sd7062"   # Profil hydrofoil cambré ~4 %. Génère un Cm₀ marqué
-                                    # mais maintenant équilibrable car le stab est libre
-                                    # de grossir/s'allonger (3 vars d'opti supplémentaires).
+  wing_airfoil:         "naca1410"    # ou alors "sd7062"  Profil hydrofoil cambré ~4 %. Génère un Cm₀ marqué
   wing_span_init:       0.890
   wing_root_chord_init: 0.170
   stab_span:       0.365
@@ -75,11 +70,8 @@ windsurf:
     - 0.018
     - 0.032
 
-  # Windsurf : haute vitesse (13 m/s) → foil plus réactif que wingfoil à niveau égal
-  pilotability_freq:
-    débutant:      [2.0, 2.8]    # Hz — déjà rapide vs un wingfoil débutant
-    intermédiaire: [2.8, 3.8]    # Hz — race-freeride freerace
-    avancé:        [3.8, 5.5]    # Hz — slalom / race competition
+  # Windsurf race-freeride : foil plus réactif que wingfoil (q haut à 13 m/s).
+  pilotability_freq: [2.8, 3.8]
 
   stab_load_range:          # Déportance plus forte pour contrer le moment du gréement
     - -40.0
@@ -126,12 +118,8 @@ downwind:
     - 0.014
     - 0.024
 
-  # Downwind = glisse longue sur houle, on privilégie la stabilité/prédictibilité.
-  # Plages plus basses qu'en wingfoil à niveau égal (foil "doux à pomper").
-  pilotability_freq:
-    débutant:      [1.3, 1.8]    # Hz — très forgiving, plateforme apprentissage
-    intermédiaire: [1.8, 2.5]    # Hz — glisse confortable
-    avancé:        [2.5, 3.5]    # Hz — réactif pour pumping rapide sur swell
+  # Downwind = glisse longue sur houle : foil "doux à pomper", plage modérée.
+  pilotability_freq: [1.8, 2.5]
 
   stab_load_range:          # Quasi neutre — pas de déportance qui freine la glisse
     - -15.0
@@ -179,13 +167,9 @@ pumping:
     - 0.016                 
     - 0.028                
 
-  # Pumping = cycles d'effort à très basse vitesse. ω_n nettement plus basse
-  # que toutes les autres disciplines : le foil doit "porter le pilote",
-  # pas lui demander des micro-corrections rapides.
-  pilotability_freq:
-    débutant:      [0.8, 1.3]    # Hz — extremely forgiving, débutants
-    intermédiaire: [1.3, 1.9]    # Hz — pumping régulier confortable
-    avancé:        [1.9, 2.8]    # Hz — pumping rapide, dynamique
+  # Pumping = cycles d'effort à très basse vitesse. ω_n basse : le foil doit
+  # "porter le pilote", pas demander des micro-corrections rapides.
+  pilotability_freq: [1.3, 1.9]
 
   stab_load_range:          # Quasi nul — le stab ne doit pas freiner le mouvement
     - -10.0
