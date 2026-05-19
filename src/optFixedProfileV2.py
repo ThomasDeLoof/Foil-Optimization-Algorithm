@@ -206,8 +206,19 @@ def _adaptive_tip_kick(c_root: float, c_tip: float, span: float,
                        kick_start: float = 0.85,
                        target_push: float = 0.020) -> float:
     """
-    Calcule le 'tip kick' (recul additionnel au 1/4 corde près du saumon)
-    Si la sweep naturelle suffit déjà, retourne 0.
+    Amplitude du 'tip kick' (recul additionnel au 1/4 corde au saumon).
+
+    On veut que la section AVANT-DERNIÈRE (r_pen = (N-2)/(N-1)) atteigne
+    `target_push` au-delà du quart-corde naturel (profil sweep_power). À
+    r_pen, la smoothstep `ss(r_pen)` délivre `tip_kick_amount × ss`, donc :
+
+        push(r_pen) = push_natural(r_pen) + kick × ss(r_pen) = target_push
+        ⇒  kick = (target_push − push_natural) / ss(r_pen)
+
+    NB : version antérieure divisait par (1 − ss), ce qui faisait diverger
+    le kick quand ss(r_pen) → 1 (i.e. à grand N). Symptôme : x_le_tip ~2.8 m
+    au lieu de ~0.15 m pour N=150. Avec `/ ss`, le kick converge vers
+    target_push quand N → ∞ (push_natural → 0 et ss → 1).
     """
     if N < 2:
         return 0.0
@@ -219,7 +230,7 @@ def _adaptive_tip_kick(c_root: float, c_tip: float, span: float,
         return max(0.0, target_push - push_natural)
     s  = (r_pen - kick_start) / (1.0 - kick_start)
     ss = s * s * (3.0 - 2.0 * s)
-    return max(0.0, (target_push - push_natural) / max(1.0 - ss, 0.01))
+    return max(0.0, (target_push - push_natural) / max(ss, 0.01))
 
 
 def build_airplane(p: dict) -> tuple:
@@ -559,12 +570,18 @@ _run_counter = {"n": 0}
 
 
 def soft_penalty(val: float, lo: float, hi: float, ref: float) -> float:
-    """Pénalité quadratique normalisée continue"""
+    """Pénalité linéaire normalisée continue.
+
+    P = |violation| / ref (exp=1). Gradient constant — pas d'écrasement près
+    du bord. Contrairement au quadratique (∂P/∂x → 0 à la frontière, qui
+    laissait les petites violations « gratuites »), ici une violation de 10%
+    coûte 0.1 vraies unités, pas 0.01.
+    """
     ref_safe = abs(ref) + 1e-9
     if val < lo:
-        return ((lo - val) / ref_safe) ** 2
+        return (lo - val) / ref_safe
     if val > hi:
-        return ((val - hi) / ref_safe) ** 2
+        return (val - hi) / ref_safe
     return 0.0
 
 

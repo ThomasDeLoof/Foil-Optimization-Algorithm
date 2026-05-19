@@ -75,7 +75,7 @@ def main() -> None:
     print("Import V2…")
     import optFixedProfileV2 as V2
 
-    # Override des résolutions AVANT build_airplane
+    # Override des résolutions pour le maillage final
     V2.N_WING = args.n_wing
     V2.N_STAB = args.n_stab
     V2.N_FUSE = args.n_fuse
