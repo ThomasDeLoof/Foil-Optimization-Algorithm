@@ -80,12 +80,10 @@ wing:
   # Construction : coque carbone + âme polystyrène (résistance âme négligée)
   skin_thickness: 0.0015            # 1.5 mm — peau carbone typique sur aile freeride
 
-  # Limites mécaniques — DIMENSIONNEMENT FATIGUE 
-  ultimate_stress_mpa: 300          # σ_ult carbone-époxy cross-ply (~300 MPa)
-  fatigue_allowable_ratio: 0.40     # Fraction de σ_ult utilisable en cyclique
-                                    #   0.30-0.40 : freeride grand public (>10⁶ cycles)
-                                    #   0.45-0.55 : race pro (cycles limités, inspection)
-                                    # → σ_admissible = 120 MPa par défaut
+  # Limites mécaniques — dimensionnement fatigue.
+  ultimate_stress_mpa: 400          # σ_ult design carbone-époxy stratifié
+  fatigue_allowable_ratio: 0.40     # Fraction utilisable en cyclique (>10⁶ cycles)
+                                    # → σ_admissible = 400 × 0.40 = 160 MPa
   load_peak_factor: 2.5             # Pic dynamique / charge statique cruise (n_g équiv.)
                                     #   2-3 : maneuvering hydrofoil typique sur clapot
                                     #   4-5 : conditions agitées, pumping vigoureux, choc

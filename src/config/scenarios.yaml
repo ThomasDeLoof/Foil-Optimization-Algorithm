@@ -14,13 +14,14 @@ wingfoil:
   v_takeoff: 5.5            # m/s — décollage freeride accessible (9.7 kts)
   v_cruise: 9.5             # m/s — croisière confortable (~17.5 kts)
 
-  area_target_range:    
-    - 0.080              
-    - 0.130               
+  # Marge décollage : fraction de CL_max utilisée au takeoff.
+  # 0.55 = freeride forgiving (foil ~2× plus grand que le min théorique race).
+  # Remplace area_target_range — encode la "marge" plutôt que des bornes d'aire.
+  takeoff_cl_margin: 0.55
 
-  stab_area_range:       
-    - 0.013             
-    - 0.026          
+  stab_area_range:
+    - 0.013
+    - 0.026
 
   # Pilotabilité — ω_n cible par niveau (Hz). Le niveau actif est choisi dans
   # parameters.yaml. Wingfoil freeride = mode polyvalent, plage modérée.
@@ -63,13 +64,13 @@ windsurf:
   v_takeoff: 7.0            # m/s — décollage nécessite plus de vitesse (~13.6 kts)
   v_cruise: 13.0            # m/s — croisière freeride windsurf (~25,27 kts)
 
-  area_target_range:        # Aile race-freeride : 550-950 cm² 
-    - 0.07
-    - 0.11
+  # Windsurf race-freeride : on tolère de s'approcher plus du CL_max au takeoff
+  # (rider expérimenté + vitesse plus haute = takeoff plus "engagé").
+  takeoff_cl_margin: 0.70
 
   stab_area_range:
-    - 0.018                 
-    - 0.032                 
+    - 0.018
+    - 0.032
 
   # Windsurf : haute vitesse (13 m/s) → foil plus réactif que wingfoil à niveau égal
   pilotability_freq:
@@ -112,13 +113,12 @@ downwind:
   v_takeoff: 6.0            # m/s — nécessite une petite poussée initiale
   v_cruise: 10.0            # m/s — vitesse typique downwind freeride (~ 20 kts)
 
-  area_target_range:
-    - 0.080                 
-    - 0.115                 
+  # Downwind = glisse sur houle, foil grand pour stabilité → marge généreuse
+  takeoff_cl_margin: 0.55
 
   stab_area_range:
-    - 0.014                 
-    - 0.024                 
+    - 0.014
+    - 0.024
 
   # Downwind = glisse longue sur houle, on privilégie la stabilité/prédictibilité.
   # Plages plus basses qu'en wingfoil à niveau égal (foil "doux à pomper").
@@ -162,9 +162,9 @@ pumping:
   v_takeoff: 3.5            # m/s — décollage à très basse vitesse (~6 kts)
   v_cruise: 6.0             # m/s — vitesse de croisière pompage (~12kts)
 
-  area_target_range:        
-    - 0.120            
-    - 0.180                
+  # Pumping = takeoff à 3.5 m/s, on ALLE le CL_max — le foil doit donner tout
+  # ce qu'il a au décollage. Pas de marge → foil naturellement gros.
+  takeoff_cl_margin: 0.85
 
   stab_area_range:
     - 0.016                 

@@ -218,8 +218,8 @@ def export_refined(x: np.ndarray) -> str:
         sm_vlm = float("nan")
 
     # --- Dossier de sortie ---
-    now_str = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_dir = os.path.join("outputs", f"{V2.CASE}_refined3d_{now_str}")
+    out_dir = V2.next_output_dir(suffix="refined3d")
+    run_tag = os.path.basename(out_dir)
     airfoils_dir = os.path.join(out_dir, "airfoils")
     os.makedirs(airfoils_dir, exist_ok=True)
 
@@ -238,7 +238,7 @@ def export_refined(x: np.ndarray) -> str:
     _rename_and_export(mast_obj.xsecs,          "mast")
 
     # --- XML XFLR5 ---
-    xml_path = os.path.join(out_dir, f"{V2.CASE}_refined3d_{now_str}_plane.xml")
+    xml_path = os.path.join(out_dir, f"{run_tag}_plane.xml")
     try:
         asb.Airplane(
             wings=[

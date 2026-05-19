@@ -3,6 +3,7 @@
 # -------------------------------------------------------------------------------
 
 import os
+import re
 import sys
 import datetime as dt
 import warnings
@@ -79,15 +80,14 @@ q_cruise = 0.5 * atmosphere.density() * cfg["v_cruise"] ** 2
 D_MAST   = q_cruise * ((mast_chord_bot + chord_wl) / 2) * profondeur_imm * cd_mast
 M_MAST   = -D_MAST * (profondeur_imm / 2)
 
-# ── Limites mécaniques — DIMENSIONNEMENT FATIGUE ──────────────────────────────
-# σ_ultimate = limite de rupture statique (≈300 MPa cross-ply carbone).
-# σ_admissible = limite de fatigue (~40% de σ_ult sur 10⁶ cycles, ajustable YAML).
-# load_peak_factor = facteur dynamique (maneuvering / vagues) appliqué à la
-# charge statique pour calculer le pic de contrainte.
+# ── Limites mécaniques — dimensionnement fatigue ──
+# σ_ult = allowable "design" stratifié carbone-époxy (~400 MPa, knockdowns implicites).
+# σ_admissible = σ_ult × fatigue_ratio (cyclique >10⁶ cycles) ≈ 160 MPa.
+# La contrainte de design compare σ_pic (charge dynamique × LOAD_PEAK_FACTOR) à σ_admissible.
 SIGMA_ULTIMATE     = phy["wing"]["ultimate_stress_mpa"] * 1e6
 FATIGUE_RATIO      = phy["wing"]["fatigue_allowable_ratio"]
 LOAD_PEAK_FACTOR   = phy["wing"]["load_peak_factor"]
-SIGMA_ADMISSIBLE   = FATIGUE_RATIO * SIGMA_ULTIMATE          # ex: 0.40 × 300 = 120 MPa
+SIGMA_ADMISSIBLE   = FATIGUE_RATIO * SIGMA_ULTIMATE          # ex: 0.40 × 400 = 160 MPa
 P_ATM         = atmosphere.pressure()
 P_VAPOR       = atmosphere.vapor_pressure()
 SIGMA_CAV     = (P_ATM + atmosphere.density() * 9.81 * profondeur_imm - P_VAPOR) \
@@ -549,9 +549,16 @@ def objective(x: np.ndarray) -> float:
     # Portance croisière ≥ poids
     penalty += K1 * soft_penalty(L, WEIGHT, np.inf, ref=WEIGHT)
 
-    # Portance décollage : L_to ≥ poids + CL_to ≤ CL_max_to
+    # Portance décollage : L_to ≥ poids + CL_to ≤ marge × CL_max_to.
+    # La marge encode la "forgiveness" du foil au décollage (différenciation
+    # par discipline) — remplace l'ancien area_target_range :
+    #   freeride / downwind : 0.55 (foil 2× plus gros que le min race)
+    #   windsurf race-frd   : 0.70
+    #   pumping             : 0.85 (on alle le CL_max — foil naturellement gros)
+    # Hard limit physique : CL_to ne doit jamais dépasser CL_max_to (stall).
     penalty += K1 * soft_penalty(L_to, WEIGHT, np.inf, ref=WEIGHT)
-    penalty += K1 * soft_penalty(CL_to, -np.inf, CL_MAX_TO, ref=CL_MAX_TO)
+    cl_to_target = cfg["takeoff_cl_margin"] * CL_MAX_TO
+    penalty += K1 * soft_penalty(CL_to, -np.inf, cl_to_target, ref=CL_MAX_TO)
 
     # Régime d'opération sain : α_cruise ≥ -1° sur profil cambré
     # (en α<-1° on tombe en zone non-linéaire négative pour NACA modérément cambré, Cm(α) devient erratique
@@ -597,9 +604,12 @@ def objective(x: np.ndarray) -> float:
     Cp_min = -(1.2 * abs(CL) + 3.0 * WING_THICKNESS_REL)
     penalty += K3 * soft_penalty(Cp_min, -SIGMA_CAV, np.inf, ref=SIGMA_CAV)
 
-    # Cible d'aire douce : reste dans la fourchette du scénario (S_wing libéré)
-    sw_lo, sw_hi = cfg["area_target_range"]
-    penalty += K3 * soft_penalty(S_wing, sw_lo, sw_hi, ref=0.5*(sw_lo+sw_hi))
+    # NB : plus de pénalité explicite sur la surface aile. La taille est
+    # désormais entièrement déterminée par la physique :
+    #   - takeoff_cl_margin × CL_max     → borne basse de S (forgiveness)
+    #   - σ_fatigue                      → borne haute d'AR (cap structurel)
+    #   - min(D_total)                   → borne haute de S (friction drag)
+    #   - L_cruise = poids               → couple S et α_cruise
 
     # Objectif multi-point : D_cruise + W_TO × D_takeoff
     W_TAKEOFF = 0.3
@@ -752,6 +762,24 @@ def run_multistart(n_starts: int = 1) -> np.ndarray:
 # 9. EXPORT & REPORT
 # ─────────────────────────────────────────────────────────────────────────────
 
+def next_output_dir(suffix: str = "", out_root: str = "outputs") -> str:
+    """
+    Construit le prochain dossier de sortie au format :
+        outputs/{case}_{level}_{YYYYMMDD}_{NN}[_{suffix}]/
+    NN s'incrémente automatiquement par jour. Le suffix optionnel sert à
+    distinguer un export "refined3d" standalone d'un run V2 standard.
+    """
+    today = dt.datetime.now().strftime("%Y%m%d")
+    prefix = f"{CASE}_{PILOT_LEVEL}_{today}"
+    os.makedirs(out_root, exist_ok=True)
+    suffix_re = re.escape("_" + suffix) if suffix else ""
+    pat = re.compile(rf"^{re.escape(prefix)}_(\d+){suffix_re}$")
+    nums = [int(m.group(1)) for d in os.listdir(out_root) if (m := pat.match(d))]
+    n = max(nums) + 1 if nums else 1
+    name = f"{prefix}_{n:02d}" + (f"_{suffix}" if suffix else "")
+    return os.path.join(out_root, name)
+
+
 def full_report(x: np.ndarray) -> None:
     """Bilan console + fiche markdown + XML XFLR5."""
     x = np.clip(x, LB, UB)
@@ -854,11 +882,13 @@ def full_report(x: np.ndarray) -> None:
     print(f"  Stabilité tangage: SM_lt = {pd['SM_lt']*100:5.1f} %  (gap NP-CG = {pd['SM_abs']*1000:5.1f} mm)")
     print(f"                     Cm_α  = {pd['Cm_alpha']:6.2f} rad⁻¹    SM/c̄ (legacy) {SM_approx*100:5.1f} %   |   VLM {sm_real_str}")
     print(f"  Volume de queue  : {v_h:5.3f}        (cible [{cfg['vh_range'][0]:.2f}–{cfg['vh_range'][1]:.2f}])")
-    print(f"  L décollage      : {L_to:6.1f} / {WEIGHT:.1f} N   CL_to : {CL_to:.3f} / {CL_MAX_TO}")
+    cl_to_target = cfg["takeoff_cl_margin"] * CL_MAX_TO
+    print(f"  L décollage      : {L_to:6.1f} / {WEIGHT:.1f} N   "
+          f"CL_to : {CL_to:.3f} / {cl_to_target:.3f} (cible)  / {CL_MAX_TO} (stall)")
     print(f"  Moment résiduel  : {M_total:.3f} N·m   Force stab : {F_stab:.1f} N")
     print(f"  Von Mises root   : pic dyn (×{LOAD_PEAK_FACTOR:.1f}g) {sigma_vm/1e6:.1f} MPa  "
           f"| statique {sigma_vm_static/1e6:.1f} MPa  "
-          f"| limite fatigue {SIGMA_ADMISSIBLE/1e6:.0f} MPa  (ult. {SIGMA_ULTIMATE/1e6:.0f})")
+          f"| admissible fatigue {SIGMA_ADMISSIBLE/1e6:.0f} MPa  (σ_ult {SIGMA_ULTIMATE/1e6:.0f})")
     print(f"  σ_v cavitation   : {SIGMA_CAV:.2f}")
 
     # ── Récap des contraintes ───────────────────────────────────────────────
@@ -868,7 +898,9 @@ def full_report(x: np.ndarray) -> None:
     checks = [
         ("L_cruise ≥ poids",        L     >= 0.99 * WEIGHT),
         ("L_takeoff ≥ poids",       L_to  >= 0.99 * WEIGHT),
-        ("CL_takeoff ≤ CL_max",     CL_to <= CL_MAX_TO + 1e-3),
+        ("CL_takeoff ≤ CL_max (stall)", CL_to <= CL_MAX_TO + 1e-3),
+        (f"CL_takeoff ≤ {cfg['takeoff_cl_margin']:.0%}·CL_max (marge {CASE})",
+                                    CL_to <= cl_to_target + 1e-3),
         ("|M_total| ≤ 5% M_ref",    abs(M_total) <= M_tol),
         (f"ω_n dans '{pilot_lvl}' [{f_lo:.1f}-{f_hi:.1f}] Hz", omega_ok),
         ("Cavitation OK",           Cp_min >= -SIGMA_CAV),
@@ -885,8 +917,9 @@ def full_report(x: np.ndarray) -> None:
     print(f"{'='*65}\n")
 
     # ── Export ───────────────────────────────────────────────────────────────
-    now_str = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_dir = os.path.join("outputs", f"{CASE}_v3param_{now_str}")
+    # Naming : outputs/{case}_{level}_{date}_{NN}/  (compteur quotidien)
+    out_dir = next_output_dir()
+    run_tag = os.path.basename(out_dir)
     os.makedirs(out_dir, exist_ok=True)
 
     _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
@@ -932,7 +965,7 @@ def full_report(x: np.ndarray) -> None:
     _rename_and_export(mast_obj.xsecs,          "mast")
 
     # XML XFLR5 — les noms d'airfoils des xsecs viennent d'être renommés
-    xml_path = os.path.join(out_dir, f"{CASE}_v3param_{now_str}_plane.xml")
+    xml_path = os.path.join(out_dir, f"{run_tag}_plane.xml")
     try:
         asb.Airplane(
             wings=[
