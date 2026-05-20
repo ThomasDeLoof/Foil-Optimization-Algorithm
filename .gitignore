@@ -8,5 +8,8 @@ venv/
 # Systèmes
 .DS_Store
 
+# Claude code
+.claude/
+
 # Dossiers de sortie temporaires (facultatif)
 outputs/
