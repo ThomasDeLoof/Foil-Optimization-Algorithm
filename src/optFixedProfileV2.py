@@ -169,6 +169,13 @@ except Exception:
 # x = [fuselage_length, cg_ratio, wing_setting_angle, twist, s_twist, alpha_to,
 #      wing_span, wing_root_chord, stab_span, stab_root_chord]
 
+# Wing bornes : scenario override (calage discipline-spécifique) avec fallback
+# sur les defaults globaux de parameters.yaml.
+_wing_span_bounds = tuple(cfg.get("wing_span_bounds",
+                                  phy["wing"].get("span_bounds", [0.75, 1.30])))
+_wing_root_bounds = tuple(cfg.get("wing_root_chord_bounds",
+                                  phy["wing"].get("root_chord_bounds", [0.10, 0.30])))
+
 BOUNDS = [
     tuple(cfg["fuselage_length_bounds"]),                     #  0 fuselage_length (m)
     tuple(cfg["cg_range"]),                                   #  1 cg_ratio (-)
@@ -176,8 +183,8 @@ BOUNDS = [
     tuple(phy["wing"].get("twist_bounds",  [-5.0, 0.5])),     #  3 twist (°)
     tuple(phy["stab"]["twist_bounds"]),                       #  4 s_twist (°)
     tuple(phy["alpha"]["bounds"]),                            #  5 alpha_to (°)
-    tuple(phy["wing"]["span_bounds"]),                        #  6 wing_span (m)
-    tuple(phy["wing"]["root_chord_bounds"]),                  #  7 wing_root_chord (m)
+    _wing_span_bounds,                                        #  6 wing_span (m)
+    _wing_root_bounds,                                        #  7 wing_root_chord (m)
     tuple(phy["stab"]["span_bounds"]),                        #  8 stab_span (m)
     tuple(phy["stab"]["root_chord_bounds"]),                  #  9 stab_root_chord (m)
 ]
@@ -399,9 +406,9 @@ def pitch_frequency_hz(Cm_alpha: float, q: float, S: float, c_ref: float) -> flo
 # 7. FONCTION OBJECTIF
 # ─────────────────────────────────────────────────────────────────────────────
 
-K1 = 2000.0   # contraintes critiques (portance, équilibre, structure)
-K2 = 1000.0   # contraintes de pilotage (SM, surface)
-K3 = 500.0    # contraintes de confort  (Vh, force stab, cavitation)
+K1 = 4000.0   # contraintes critiques (portance, équilibre, structure)
+K2 = 2000.0   # contraintes de pilotage (SM, surface)
+K3 = 1000.0    # contraintes de confort  (Vh, force stab, cavitation)
 
 _run_counter = {"n": 0}
 
@@ -1007,14 +1014,8 @@ def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
     CD_c    = D / (0.5 * rho * cfg["v_cruise"] ** 2 * wing.area())
 
     lines = [
-        f"# Fiche Technique — {CASE.upper()}  |  V3 Paramétrique Macroscopique",
+        f"# Fiche Technique — {CASE.upper()} freeride",
         "", f"*Générée le {now_str}*", "", "---", "",
-        "## 0. Configuration — profils & stab figés", "",
-        "| Élément | Profil | Span | Corde R/T |",
-        "|:---|:---|:---|:---|",
-        f"| Aile  | {WING_AIRFOIL_NAME} | {p['wing_span']*100:.0f} cm | {p['wing_root_chord']*1000:.0f} / {p['wing_tip_chord']*1000:.0f} mm |",
-        f"| Stab  | {STAB_AIRFOIL_NAME} | {STAB_SPAN*100:.0f} cm | {STAB_ROOT_CHORD*1000:.0f} / {STAB_TIP_CHORD*1000:.0f} mm |",
-        "", "---", "",
         f"## 1. Variables optimisées ({N_VAR})", "",
         "| Variable | Valeur | Bornes |", "|:---|:---|:---|",
         f"| Fuselage length | {p['fuselage_length']*100:.1f} cm | [{BOUNDS[0][0]*100:.0f}–{BOUNDS[0][1]*100:.0f}] cm |",
@@ -1050,21 +1051,22 @@ def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
         "", "---", "",
         "## 4. Géométrie issue de l'opti", "",
         "| Paramètre | Aile | Stab |", "|:---|:---|:---|",
+        f"| Profil  | {WING_AIRFOIL_NAME} | {STAB_AIRFOIL_NAME} |",
         f"| Surface (cm²) | {wing.area()*1e4:.0f} | {stab.area()*1e4:.0f} |",
         f"| Allongement | {AR_w:.2f} | {AR_s:.2f} |",
         f"| Corde moyenne (mm) | {mean_chord*1000:.0f} | {(STAB_ROOT_CHORD+STAB_TIP_CHORD)*500:.0f} |",
+        f"| Corde R/T (mm) | {p['wing_root_chord']*1000:.0f}/{p['wing_tip_chord']*1000:.0f} | {STAB_ROOT_CHORD*1000:.0f} / {STAB_TIP_CHORD*1000:.0f} |",
         "", "---", "",
         "## 5. Pilotabilité, Stabilité & Structure", "",
         "| Paramètre | Valeur | Cible |", "|:---|:---|:---|",
-        f"| **ω_n** (fréquence pitch, Hz) | {omega_n:.2f} Hz" if np.isfinite(omega_n) else "| **ω_n** | UNSTABLE",
-        f" | cible freeride [{f_lo:.1f}–{f_hi:.1f}] Hz |",
-        f"| Cm_α (raideur tangage, rad⁻¹) | {pd['Cm_alpha']:.2f} | (info, <0 = stable) |",
+        f"| **ω_n** (fréquence pitch, Hz) | {omega_n:.2f} Hz | freeride [{f_lo:.1f}–{f_hi:.1f}] Hz |",
+        f"| Cm_α (raideur tangage, rad⁻¹) | {pd['Cm_alpha']:.2f} | (<0 = stable) |",
         f"| SM/l_t (scale-invariant) | {pd['SM_lt']*100:.1f}% | typique aviation 10-25% |",
         f"| Gap NP-CG (absolu) | {pd['SM_abs']*1000:.1f} mm | — |",
-        f"| SM/c̄ (legacy, aircraft-style) | {pd['SM_chord']*100:.1f}% | — (chord-normalisé) |",
+        f"| SM/c̄ | {pd['SM_chord']*100:.1f}% | — (chord-normalisé) |",
         f"| CG | {p['cg_ratio']*100:.1f}% c̄ ({X_cg*100:.1f} cm) | [{cfg['cg_range'][0]*100:.0f}–{cfg['cg_range'][1]*100:.0f}]% |",
         f"| Moment résiduel | {M_total:.3f} N·m | < {M_TOL_TRIM:.1f} N·m (trim authority pilote) |",
-        f"| Force stab (info) | {F_stab:.1f} N | — |",
+        f"| Force stab | {F_stab:.1f} N | (<0 = stable) |",
         f"| Volume de queue (info) | {v_h:.3f} | — |",
         f"| Von Mises root (pic ×{LOAD_PEAK_FACTOR:.1f}g) | {sigma_vm/1e6:.1f} MPa | < {SIGMA_ADMISSIBLE/1e6:.0f} MPa (fatigue) |",
         f"| Von Mises root (statique 1g) | {sigma_vm_static/1e6:.1f} MPa | < {SIGMA_ULTIMATE/1e6:.0f} MPa (rupture) |",

@@ -8,7 +8,7 @@
 # CAS ACTIF
 # Options : "wingfoil", "windsurf", "downwind", "pumping"
 # -----------------------------------------------------------------------------
-case: "wingfoil"
+case: "windsurf"
 
 
 # -----------------------------------------------------------------------------
@@ -52,12 +52,14 @@ Kulfan:
 # AILE PRINCIPALE
 # -----------------------------------------------------------------------------
 wing:
-  # Bornes larges — l'optimiseur choisit librement dans cette plage
-  span_bounds: [0.75, 1.30]         # 75 cm (race) à 130 cm (pumping/débutant)
-  span_init: 0.89                   # Warm-start AXIS BSC 890 (calibré)
-
-  root_chord_bounds: [0.10, 0.30]   # 10 cm (trop mince) à 30 cm (très épais)
-  root_chord_init: 0.170            # 170 mm — root max chord BSC 890
+  # NB : `wing_span_bounds` et `wing_root_chord_bounds` sont définis PAR SCÉNARIO
+  # dans scenarios.yaml — chaque discipline a une géométrie de référence
+  # industrielle différente (BSC 890 vs Race 800 vs HA 1080 vs HA 1525).
+  # `span_init` et `root_chord_init` ci-dessous sont des fallbacks globaux ;
+  # les inits réels sont aussi dans scenarios.yaml (`wing_span_init`,
+  # `wing_root_chord_init`).
+  span_init: 0.89                   # Fallback : warm-start AXIS BSC 890
+  root_chord_init: 0.170            # Fallback : 170 mm BSC 890
 
   tip_chord_ratio: 0.25             # tip = 0.25 × root (élégance + AR proche industriel)
                                     # 0.20 = saumon très fin, 0.30 = trapu freeride

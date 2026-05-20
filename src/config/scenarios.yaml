@@ -30,7 +30,7 @@ wingfoil:
 
   cg_range:                 # Garde-fou numérique seulement — la pilotabilité
     - 0.05                  # réelle est imposée par la cible ω_n, pas par CG.
-    - 0.95                  # Bornes très larges → CG choisi via moment + ω_n.
+    - 0.65                  # Bornes très larges → CG choisi via moment + ω_n.
 
   cg_ratio_init: 0.38
 
@@ -43,9 +43,13 @@ wingfoil:
 
   # Foil de référence : AXIS BSC 890 (1290 cm², AR 6.43, max chord 170 mm)
   # Stab compagnon : AXIS Skinny 365/55 (168 cm², AR 8.06)
-  wing_airfoil:         "naca1410"    # ou alors "sd7062"  Profil hydrofoil cambré ~4 %. Génère un Cm₀ marqué
+  wing_airfoil:         "naca2412"
+  # Prendre des profils cambré à au moins 4 %, NACA 4412, 4415, Eppler 387, HQ17, SD7037
+
   wing_span_init:       0.890
   wing_root_chord_init: 0.170
+  wing_span_bounds:       [0.85, 1.20]   # Freeride wingfoil — calé BSC 890 (89 cm)
+  wing_root_chord_bounds: [0.13, 0.25]   # 130-250 mm. Sweet spot trouvé par itérations.
   stab_span:       0.365
   stab_root_chord: 0.055
 
@@ -71,7 +75,7 @@ windsurf:
 
   cg_range:                 # Garde-fou numérique — pilotabilité via ω_n.
     - 0.05
-    - 0.95
+    - 0.65
 
   cg_ratio_init: 0.30
 
@@ -83,11 +87,14 @@ windsurf:
   rig_mass_kg: 9            # Voile + mât + wishbone
 
   # Foil de référence : Starboard Race 800 (800 cm², AR 8.0, span 800 mm)
-  #   Profil Tom Speer "thin and relatively symmetrical" — race iconique IQFoil
   # Stab compagnon : Starboard Tail 255 (255 cm², span 400 mm, AR 6.3)
-  wing_airfoil:         "naca1410"   # thin + low camber, conforme au design Speer
+  wing_airfoil:         "naca2412"
+  # Profils entre 2 et 3% de cambrure, NACA 2410, 2412, HT13
+
   wing_span_init:       0.800
   wing_root_chord_init: 0.120
+  wing_span_bounds:       [0.75, 1.10]   # Race-freeride windsurf — calé Race 800 (80 cm)
+  wing_root_chord_bounds: [0.10, 0.20]   # 100-200 mm. Race wing : chord modéré.
   stab_span:       0.400
   stab_root_chord: 0.076
 
@@ -111,7 +118,7 @@ downwind:
 
   cg_range:                 # Garde-fou numérique — pilotabilité via ω_n.
     - 0.05
-    - 0.95
+    - 0.65
 
   cg_ratio_init: 0.23
 
@@ -125,9 +132,12 @@ downwind:
   # Foil de référence : Armstrong HA 1080 (1080 cm², AR 9.6, span 1020 mm)
   #   High-aspect — surf/downwind/wing intermediate-to-expert
   # Stab compagnon : Armstrong HA 195 (195 cm², span 385 mm, AR 7.6)
-  wing_airfoil:         "e387"   # Eppler 387, thin laminar pour glisse longue
+  wing_airfoil:         "e387"
+  # profils thin laminar pour glisse longue, E387, E186, NACA 2412, HQ17
   wing_span_init:       1.020
   wing_root_chord_init: 0.128
+  wing_span_bounds:       [0.95, 1.25]   # Downwind high-aspect — calé HA 1080 (102 cm)
+  wing_root_chord_bounds: [0.11, 0.22]   # 110-220 mm. High-aspect glider.
   stab_span:       0.385
   stab_root_chord: 0.060
 
@@ -153,7 +163,7 @@ pumping:
 
   cg_range:                 # Garde-fou numérique — pilotabilité via ω_n.
     - 0.05
-    - 0.95
+    - 0.65
 
   cg_ratio_init: 0.25
 
@@ -167,8 +177,11 @@ pumping:
   # Foil de référence : Armstrong HA 1525 (1525 cm², AR 9.5, span 1200 mm)
   #   High-aspect pumping wing, intermediate-to-expert flatwater riders
   # Stab compagnon : Armstrong HA 195 (idem downwind, kit officiel HA1525 + HA195)
-  wing_airfoil:         "e423"   # Eppler 423, fort camber pour CL_max à basse vitesse
+  wing_airfoil:         "e423"
+  # profils à fort camber pour CL_max à basse vitesse, e423, E817, SD7062, NACA 4412
   wing_span_init:       1.200
   wing_root_chord_init: 0.154
+  wing_span_bounds:       [1.05, 1.35]   # Pumping low-V/large area — calé HA 1525 (120 cm)
+  wing_root_chord_bounds: [0.13, 0.25]   # 130-250 mm. Foil naturellement grand.
   stab_span:       0.385
   stab_root_chord: 0.060
