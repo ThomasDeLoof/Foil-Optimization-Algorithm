@@ -192,7 +192,8 @@ N_VAR = len(BOUNDS)
 LB    = np.array([b[0] for b in BOUNDS])
 UB    = np.array([b[1] for b in BOUNDS])
 
-STAB_AR_RANGE = tuple(phy["stab"].get("aspect_ratio_range", [4.0, 14.0]))
+STAB_AR_RANGE = tuple(cfg.get("stab_aspect_ratio_range",
+                              phy["stab"].get("aspect_ratio_range", [4.0, 14.0])))
 
 
 def decode(x: np.ndarray) -> dict:
