@@ -57,6 +57,8 @@ wingfoil:
   wing_root_chord_init: 0.170
   wing_span_bounds:       [0.85, 1.20]   # Freeride wingfoil — calé BSC 890 (89 cm)
   wing_root_chord_bounds: [0.13, 0.25]   # 130-250 mm. Sweet spot trouvé par itérations.
+  wing_aspect_ratio_max:  8            # Cap freeride : BSC 890 = 6.43
+                                          # fabrication carbone, stiffness, impact, roll inertia.
   stab_span:       0.365
   stab_root_chord: 0.055
 
@@ -85,9 +87,10 @@ windsurf:
                             # Ref Race 800 + Tail 255 = 220 N/° ; on met ~73 %.
                             # Race-freeride demande forte autorité à 13 m/s.
 
-  cg_range:                 # Cap supérieur à 0.50 (vs 0.65 wingfoil) car windsurf
-    - 0.05                  # à 13 m/s + wing modérément cambré bascule en tandem
-    - 0.50                  # dès CG > 0.50. Force la stratégie conventionnelle.
+  cg_range:                 # Cap supérieur à 0.45 (resserré depuis 0.50) : avec
+    - 0.05                  # le stab plus grand imposé par dF/dα, l'opti retrouve
+    - 0.45                  # encore la voie tandem à 0.50. Cap 0.45 force définitivement
+                            # la stratégie conventionnelle (CG fwd, stab download).
 
   cg_ratio_init: 0.30
 
@@ -107,6 +110,8 @@ windsurf:
   wing_root_chord_init: 0.120
   wing_span_bounds:       [0.75, 1.10]   # Race-freeride windsurf — calé Race 800 (80 cm)
   wing_root_chord_bounds: [0.12, 0.20]   # 120-200 mm. Borne basse à 0.12 = chord Race 800.
+  wing_aspect_ratio_max:  8.5            # Cap Race 800 (AR 8.0 exact). Au-delà = race
+                                          # pure, foil très technique à piloter.
   stab_span:       0.400
   stab_root_chord: 0.076
 
@@ -154,6 +159,8 @@ downwind:
   wing_root_chord_init: 0.128
   wing_span_bounds:       [0.95, 1.25]   # Downwind high-aspect — calé HA 1080 (102 cm)
   wing_root_chord_bounds: [0.11, 0.22]   # 110-220 mm. High-aspect glider.
+  wing_aspect_ratio_max:  9.5            # Cap HA 1080 (AR 9.6). Discipline naturellement
+                                          # high-aspect mais on évite > 10 pour la robustesse.
   stab_span:       0.385
   stab_root_chord: 0.060
 
@@ -209,5 +216,7 @@ pumping:
   wing_span_bounds:       [1.05, 1.35]   # Pumping low-V/large area — calé HA 1525 (120 cm)
   wing_root_chord_bounds: [0.14, 0.25]   # 140-250 mm. Foil naturellement grand. Borne
                                           # basse à 0.14 pour wing area > 1300 cm².
+  wing_aspect_ratio_max:  9.5            # Cap HA 1525 (AR 9.5). High-aspect pumping
+                                          # mais on borne pour la robustesse.
   stab_span:       0.385
   stab_root_chord: 0.060

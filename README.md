@@ -104,8 +104,6 @@ Reference values calibrated on industry pairs (with NACA-0012-like `CL_α ≈ 0.
 | downwind | HA 1080 + HA 195 | 99 N/° | **75 N/°** |
 | pumping | HA 1525 + HA 195 | 36 N/° | **28 N/°** |
 
-These targets are stored per discipline in `scenarios.yaml` as `stab_control_authority_min_N_per_deg`. The optimiser is penalised softly if `dF/dα` falls below. The 25 % margin under industry accounts for the fact that our model is steady-state — real foils need slightly bigger margins than ours to cover dynamic regimes we don't capture.
-
 This is the cleanest physical formulation I found of "the stab needs to be big enough" that isn't either arbitrary (just impose a min area) or hand-wavy (force a specific download). It naturally scales with q, which means the same physical authority constraint translates to a bigger stab on slow-speed pumping foils and a smaller one on race windsurf.
 
 ### Structure

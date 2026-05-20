@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE explane>
+<explane version="1.0">
+    <Units>
+        <length_unit_to_meter>1</length_unit_to_meter>
+        <mass_unit_to_kg>1</mass_unit_to_kg>
+    </Units>
+    <body>
+        <Name>wingfoil freeride 06_body</Name>
+        <Color>
+            <red>98</red>
+            <green>102</green>
+            <blue>156</blue>
+            <alpha>255</alpha>
+        </Color>
+        <Description></Description>
+        <Position>          0,           0,           0</Position>
+        <Type>NURBS</Type>
+        <x_degree>3</x_degree>
+        <hoop_degree>3</hoop_degree>
+        <x_panels>6</x_panels>
+        <hoop_panels>4</hoop_panels>
+        <Inertia>
+            <Volume_Mass>  0.000</Volume_Mass>
+        </Inertia>
+        <frame>
+            <Position>          0,           0,           0</Position>
+            <point>          0,           0,       0.003</point>
+            <point>          0,       0.001,       0.003</point>
+            <point>          0,       0.004,           0</point>
+            <point>          0,       0.001,      -0.001</point>
+            <point>          0,           0,      -0.001</point>
+        </frame>
+        <frame>
+            <Position>        0.1,           0,           0</Position>
+            <point>        0.1,           0,       0.017</point>
+            <point>        0.1,       0.017,       0.016</point>
+            <point>        0.1,       0.018,           0</point>
+            <point>        0.1,       0.018,      -0.017</point>
+            <point>        0.1,           0,      -0.017</point>
+        </frame>
+        <frame>
+            <Position>       0.25,           0,           0</Position>
+            <point>       0.25,           0,       0.018</point>
+            <point>       0.25,        0.02,       0.017</point>
+            <point>       0.25,        0.02,           0</point>
+            <point>       0.25,        0.02,       -0.02</point>
+            <point>       0.25,           0,       -0.02</point>
+        </frame>
+        <frame>
+            <Position>       0.36,           0,           0</Position>
+            <point>       0.36,           0,       0.018</point>
+            <point>       0.36,        0.02,       0.017</point>
+            <point>       0.36,        0.02,           0</point>
+            <point>       0.36,        0.02,       -0.02</point>
+            <point>       0.36,           0,       -0.02</point>
+        </frame>
+        <frame>
+            <Position>        0.5,           0,           0</Position>
+            <point>        0.5,           0,       0.017</point>
+            <point>        0.5,       0.018,       0.015</point>
+            <point>        0.5,       0.018,           0</point>
+            <point>        0.5,       0.018,      -0.018</point>
+            <point>        0.5,           0,      -0.018</point>
+        </frame>
+        <frame>
+            <Position>       0.65,           0,           0</Position>
+            <point>       0.65,           0,       0.015</point>
+            <point>       0.65,        0.01,       0.015</point>
+            <point>       0.65,       0.012,       0.003</point>
+            <point>       0.65,        0.01,      -0.007</point>
+            <point>       0.65,           0,      -0.007</point>
+        </frame>
+        <frame>
+            <Position>      0.725,           0,           0</Position>
+            <point>      0.725,           0,       0.002</point>
+            <point>      0.725,       0.001,       0.002</point>
+            <point>      0.725,       0.001,       0.001</point>
+            <point>      0.725,       0.001,           0</point>
+            <point>      0.725,           0,           0</point>
+        </frame>
+    </body>
+</explane>

@@ -601,6 +601,13 @@ def objective(x: np.ndarray) -> float:
     ar_lo, ar_hi = STAB_AR_RANGE
     penalty += K2 * soft_penalty(AR_stab_phys, ar_lo, ar_hi, ref=0.5*(ar_lo+ar_hi))
 
+    # Cap AR aile — raisons non-hydro (fabrication carbone, stiffness, impact,
+    # roll inertia, pilotabilité freeride). Référence industrielle par discipline.
+    ar_wing_max = cfg.get("wing_aspect_ratio_max", np.inf)
+    if np.isfinite(ar_wing_max):
+        AR_wing_phys = (p["wing_span"] ** 2) / max(S_wing, 1e-6)
+        penalty += K2 * soft_penalty(AR_wing_phys, -np.inf, ar_wing_max, ref=ar_wing_max)
+
     # Objectif multi-point : D_cruise + W_TO × D_takeoff
     W_TAKEOFF = 0.3
     return D_total + W_TAKEOFF * D_to + penalty
@@ -850,8 +857,12 @@ def full_report(x: np.ndarray) -> None:
 
     # ── Géométrie ──
     print(SEC("Géométrie"))
+    ar_wing_cap = cfg.get("wing_aspect_ratio_max", float("inf"))
+    ar_w_mark = C.ok("✓") if AR_w <= ar_wing_cap else C.warn("⚠")
+    ar_dim = f" {C.dim(f'(cap {ar_wing_cap:.1f})')}" if np.isfinite(ar_wing_cap) else ""
     print(f"    Aile      {WING_AIRFOIL_NAME:<10}  span {p['wing_span']*100:5.1f} cm   "
-          f"root/tip {p['wing_root_chord']*1000:3.0f}/{p['wing_tip_chord']*1000:2.0f} mm   AR {AR_w:5.2f}")
+          f"root/tip {p['wing_root_chord']*1000:3.0f}/{p['wing_tip_chord']*1000:2.0f} mm   "
+          f"AR {AR_w:5.2f}{ar_dim} {ar_w_mark}")
     print(f"    Stab      {STAB_AIRFOIL_NAME:<10}  span {p['stab_span']*100:5.1f} cm   "
           f"root/tip {p['stab_root_chord']*1000:3.0f}/{p['stab_tip_chord']*1000:2.0f} mm   AR {AR_s:5.2f}")
     print(f"    Fuselage  {p['fuselage_length']*100:5.1f} cm    CG {p['cg_ratio']*100:5.1f} % c̄    "
@@ -924,6 +935,8 @@ def full_report(x: np.ndarray) -> None:
                                               stab_ok, f"{F_stab:+.1f} N"),
         (f"Autorité stab dF/dα ≥ {dFda_target_chk:.0f} N/°",
                                               dFda_ok_chk, f"{dFda_stab_chk:.1f} N/°"),
+        (f"AR aile ≤ {ar_wing_cap:.1f}" if np.isfinite(ar_wing_cap) else "AR aile libre",
+                                              (AR_w <= ar_wing_cap + 0.05), f"{AR_w:.2f}"),
         ("ω_n dans cible freeride",          omega_ok, f"{omega_n:.2f} vs [{f_lo:.1f}-{f_hi:.1f}] Hz"),
         ("Cavitation OK",                    Cp_min >= -SIGMA_CAV, ""),
         ("σ_VM pic ≤ σ_fatigue",             sigma_vm <= SIGMA_ADMISSIBLE, f"{sigma_vm/1e6:.0f} / {SIGMA_ADMISSIBLE/1e6:.0f} MPa"),
