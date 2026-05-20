@@ -48,9 +48,9 @@ wingfoil:
 
   wing_span_init:       0.890
   wing_root_chord_init: 0.170
-  wing_span_bounds:       [0.85, 1.20]   
-  wing_root_chord_bounds: [0.13, 0.25]   
-  wing_aspect_ratio_max:  8            
+  wing_span_bounds:       [0.85, 1.20]
+  wing_root_chord_bounds: [0.13, 0.25]
+  wing_aspect_ratio_max:  9.5  
   stab_span:       0.365
   stab_root_chord: 0.055
 
