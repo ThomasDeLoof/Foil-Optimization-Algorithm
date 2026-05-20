@@ -384,6 +384,10 @@ PILOT_FREQ_LO, PILOT_FREQ_HI = cfg["pilotability_freq"]
 # Cf. parameters.yaml#pilot.trim_moment_tolerance_N_m.
 M_TOL_TRIM = phy["pilot"].get("trim_moment_tolerance_N_m", 25.0)
 
+# Pente CL_α du stab (NACA 0012-like), utilisée pour l'autorité de contrôle
+# dF_stab/dα = CL_α × q × S_stab. Cible définie par scénario.
+CL_ALPHA_STAB_PER_DEG = phy["stab"].get("cl_alpha_per_deg", 0.10)
+
 
 def get_pilot_freq_range() -> tuple:
     """Retourne (f_lo, f_hi) — la cible ω_n du scénario courant."""
@@ -553,6 +557,17 @@ def objective(x: np.ndarray) -> float:
         penalty += K2 * soft_penalty(F_stab, f_lo, f_hi, ref=abs(f_lo))
     except Exception:
         pass  # pas de pénalité si AeroBuildup n'a pas la décomposition par surface
+
+    # Autorité de contrôle stab : dF_stab/dα = CL_α × q × S_stab. C'est la force
+    # aero modulée par degré de variation d'α — ce que ressent le pilote quand
+    # une vague tilt le foil ou qu'il change de stance. Contrainte non capturée
+    # par ω_n (qui n'impose que la stiffness totale, pas la taille stab). Sans
+    # cette borne, l'opti garde un stab minuscule à CL élevé → force OK en
+    # steady-state mais autorité de correction insuffisante en pratique.
+    dFda_target = cfg.get("stab_control_authority_min_N_per_deg", 0.0)
+    if dFda_target > 0:
+        dFda_stab = CL_ALPHA_STAB_PER_DEG * q_cruise * S_stab
+        penalty += K2 * soft_penalty(dFda_stab, dFda_target, np.inf, ref=dFda_target)
 
     # Pilotabilité : Cm_a dérivé DIRECTEMENT du bracket AeroBuildup (coût zéro,
     try:
@@ -872,6 +887,14 @@ def full_report(x: np.ndarray) -> None:
     m_mark = C.ok("✓") if abs(M_total) <= M_tol else C.warn("⚠")
     print(f"    Moment résid. {M_total:+6.2f} N·m   {C.dim(f'tol ±{M_tol:.2f}')}   {m_mark}")
     print(f"    Force stab    {F_stab:+6.1f} N")
+    # Autorité de contrôle stab — pas redondant avec ω_n (cf. README).
+    dFda_stab = CL_ALPHA_STAB_PER_DEG * q_cruise * stab.area()
+    dFda_target = cfg.get("stab_control_authority_min_N_per_deg", 0.0)
+    if dFda_target > 0:
+        dFda_ok = dFda_stab >= dFda_target
+        dFda_mark = C.ok("✓") if dFda_ok else C.warn("⚠")
+        print(f"    dF_stab/dα    {dFda_stab:+6.1f} N/°   "
+              f"{C.dim(f'≥ {dFda_target:.0f} (autorité contrôle)')}   {dFda_mark}")
 
     # ── Structure & cavitation ──
     print(SEC("Structure & cavitation"))
@@ -887,6 +910,9 @@ def full_report(x: np.ndarray) -> None:
     # ── Contraintes ──
     sl_lo, sl_hi = cfg["stab_load_range"]
     stab_ok = np.isfinite(F_stab) and (sl_lo <= F_stab <= sl_hi)
+    dFda_target_chk = cfg.get("stab_control_authority_min_N_per_deg", 0.0)
+    dFda_stab_chk = CL_ALPHA_STAB_PER_DEG * q_cruise * stab.area()
+    dFda_ok_chk = (dFda_target_chk == 0) or (dFda_stab_chk >= dFda_target_chk)
     checks = [
         ("L cruise ≥ poids",                 L     >= 0.99 * WEIGHT, ""),
         ("L décollage ≥ poids",              L_to  >= 0.99 * WEIGHT, f"{L_to:.1f} / {WEIGHT:.1f} N"),
@@ -896,6 +922,8 @@ def full_report(x: np.ndarray) -> None:
         ("|M_total| ≤ trim authority pilote",abs(M_total) <= M_tol, f"{M_total:+.2f} vs ±{M_tol:.2f} N·m"),
         (f"Stab déportant dans [{sl_lo:.0f},{sl_hi:.0f}] N",
                                               stab_ok, f"{F_stab:+.1f} N"),
+        (f"Autorité stab dF/dα ≥ {dFda_target_chk:.0f} N/°",
+                                              dFda_ok_chk, f"{dFda_stab_chk:.1f} N/°"),
         ("ω_n dans cible freeride",          omega_ok, f"{omega_n:.2f} vs [{f_lo:.1f}-{f_hi:.1f}] Hz"),
         ("Cavitation OK",                    Cp_min >= -SIGMA_CAV, ""),
         ("σ_VM pic ≤ σ_fatigue",             sigma_vm <= SIGMA_ADMISSIBLE, f"{sigma_vm/1e6:.0f} / {SIGMA_ADMISSIBLE/1e6:.0f} MPa"),
@@ -1067,6 +1095,9 @@ def _export_md(out_dir, p, wing, stab, mean_chord, D_total, L, D,
         f"| CG | {p['cg_ratio']*100:.1f}% c̄ ({X_cg*100:.1f} cm) | [{cfg['cg_range'][0]*100:.0f}–{cfg['cg_range'][1]*100:.0f}]% |",
         f"| Moment résiduel | {M_total:.3f} N·m | < {M_TOL_TRIM:.1f} N·m (trim authority pilote) |",
         f"| Force stab | {F_stab:.1f} N | (<0 = stable) |",
+        (lambda d, t: f"| Autorité contrôle stab dF/dα | {d:.1f} N/° | ≥ {t:.0f} (cible) |")(
+            CL_ALPHA_STAB_PER_DEG * 0.5 * rho * cfg['v_cruise']**2 * stab.area(),
+            cfg.get('stab_control_authority_min_N_per_deg', 0.0)),
         f"| Volume de queue (info) | {v_h:.3f} | — |",
         f"| Von Mises root (pic ×{LOAD_PEAK_FACTOR:.1f}g) | {sigma_vm/1e6:.1f} MPa | < {SIGMA_ADMISSIBLE/1e6:.0f} MPa (fatigue) |",
         f"| Von Mises root (statique 1g) | {sigma_vm_static/1e6:.1f} MPa | < {SIGMA_ULTIMATE/1e6:.0f} MPa (rupture) |",

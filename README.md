@@ -87,6 +87,27 @@ The fix lives in `scenarios.yaml` via the `stab_load_range` per discipline. The 
 
 The point isn't to force a specific download value — the opti is free in the range. It's to **prevent the trivial minimum** that a pure cruise optimiser would otherwise pick. This is what real manufacturers do, just rarely formalised: their cruise design point sizes the stab at maybe 30-50 % of its CL_max, leaving the rest as headroom.
 
+### Stab control authority 
+
+The download-range constraint above only bounds the *force* the stab produces, not its *size*. Mathematically, a given force can come from either a big stab at low `CL_stab` (industry style) or a small stab at high `CL_stab` (model's preferred minimum). The optimiser will pick the latter every time, because smaller wetted area = less friction drag.
+
+So I added a second constraint that depends on stab size directly: **the lift derivative `dF_stab/dα = CL_α_stab × q × S_stab` must be at least a discipline-specific target**. Physically, this is the force change per degree of incidence variation — what the pilot feels when a wave tilts the foil, or what the stab "appuie en retour" when the rider changes stance. It's the open-loop gain of the foil's pitch correction loop.
+
+The key point: this is **not redundant with `ω_n`**. `ω_n` measures the *combined* stiffness/inertia of the system (wing + stab Cm_α together) — many geometries can produce the same `ω_n` with widely different stab sizes. `dF_stab/dα` measures only the stab's contribution, and scales linearly with area at fixed cruise q. So requiring a minimum dF/dα directly constrains a minimum stab area, scaled appropriately to the dynamic pressure of each discipline.
+
+Reference values calibrated on industry pairs (with NACA-0012-like `CL_α ≈ 0.10` per degree):
+
+| Scenario | Industry ref (stab area × q) | `dF/dα` ref | Our target (~75 %) |
+|---|---|---|---|
+| wingfoil | BSC 890 + Skinny 168 | 77 N/° | **55 N/°** |
+| windsurf | Race 800 + Tail 255 | 220 N/° | **160 N/°** |
+| downwind | HA 1080 + HA 195 | 99 N/° | **75 N/°** |
+| pumping | HA 1525 + HA 195 | 36 N/° | **28 N/°** |
+
+These targets are stored per discipline in `scenarios.yaml` as `stab_control_authority_min_N_per_deg`. The optimiser is penalised softly if `dF/dα` falls below. The 25 % margin under industry accounts for the fact that our model is steady-state — real foils need slightly bigger margins than ours to cover dynamic regimes we don't capture.
+
+This is the cleanest physical formulation I found of "the stab needs to be big enough" that isn't either arbitrary (just impose a min area) or hand-wavy (force a specific download). It naturally scales with q, which means the same physical authority constraint translates to a bigger stab on slow-speed pumping foils and a smaller one on race windsurf.
+
 ### Structure
 
 The root cross-section is modeled as a hollow elliptic carbon shell, around 1.5 mm thick by default (`wing.skin_thickness` in `parameters.yaml`), with a polystyrene core whose contribution is neglected. Calculating and using as a constraint the structural strenght of the foil is critical to ensure the optimization doesn't create absurd shapes (like AR=20 for example).

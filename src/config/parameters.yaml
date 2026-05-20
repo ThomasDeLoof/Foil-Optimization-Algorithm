@@ -8,7 +8,7 @@
 # CAS ACTIF
 # Options : "wingfoil", "windsurf", "downwind", "pumping"
 # -----------------------------------------------------------------------------
-case: "windsurf"
+case: "pumping"
 
 
 # -----------------------------------------------------------------------------
@@ -121,6 +121,11 @@ stab:
   # NB : valeurs INITIALES du stab (warm-start) → scenarios.yaml par discipline.
   # BORNES ci-dessous = globales, gardées étroites pour éviter stabs aberrants.
   airfoil: "naca0012"               # Symétrique standard pour stab calé
+
+  cl_alpha_per_deg: 0.10            # Pente CL_α du stab (NACA 0012 thin sym, AR ~7-8).
+                                    # Utilisé pour calculer l'autorité de contrôle
+                                    # dF_stab/dα = CL_α × q × S_stab. Cf. scenarios.yaml
+                                    # `stab_control_authority_min_N_per_deg`.
 
   span_bounds:       [0.25, 0.50]   # Stab freeride : 25-50 cm typique
   root_chord_bounds: [0.04, 0.12]   # 4-12 cm root
