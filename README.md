@@ -5,7 +5,7 @@
 <table align="center">
   <tr>
     <td align="center">
-      <img src="docs/"wingfoil_stream_illustration.png", width="800px"/><br/>
+      <img src="docs/wingfoil_stream_illustration.png", width="1000px"/><br/>
     </td>
   </tr>
 </table>
