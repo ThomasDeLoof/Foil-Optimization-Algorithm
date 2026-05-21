@@ -1,22 +1,22 @@
 # =================================================================================
-# Calibration empirique de de_da (downwash effectif aile→stab) — voir README
+# Empirical calibration of de_da (effective wing→stab downwash) — see README
 # -------------------------------------------------------------------------------
-# Pour un hydrofoil avec l_t/c̄ ≈ 5, la formule classique 4/(AR+2) ≈ 0.5
-# surestime fortement le downwash. On l'inverse numériquement à partir de
-# SM_VLM (4 appels VLM aux bornes de fuselage_length).
+# For a hydrofoil with l_t/c̄ ≈ 5, the classical formula 4/(AR+2) ≈ 0.5
+# strongly overestimates the downwash. We invert it numerically from
+# SM_VLM (4 VLM calls at the fuselage_length bounds).
 # -------------------------------------------------------------------------------
 
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent   # src/
 sys.path.append(str(ROOT))
 
 import numpy as np
 import aerosandbox as asb
 
 
-# Pure math — dupliqué ici pour rendre ce module indépendant de V2.
+# Pure math — duplicated here to keep this module independent of V2.
 def _cl_alpha_helmbold(AR: float) -> float:
     a0 = 2.0 * np.pi
     return a0 / (np.sqrt(1.0 + (a0 / (np.pi * AR)) ** 2) + a0 / (np.pi * AR))
@@ -24,12 +24,12 @@ def _cl_alpha_helmbold(AR: float) -> float:
 
 def _measure_de_da_at(ctx: dict, fl: float) -> tuple:
     """
-    Mesure de_da empirique à un fuselage_length donné via VLM.
+    Empirical de_da measurement at a given fuselage_length via VLM.
 
-    `ctx` doit contenir :
+    `ctx` must contain:
         - "build_airplane"          : callable(p_dict) -> (airplane, wing, stab, mc, _, _)
-        - "init_p_neutral"          : dict des params planform/trim figés pour la mesure
-                                      (cg_ratio, wing_*, stab_*, s_twist, calage, alpha_to)
+        - "init_p_neutral"          : dict of planform/trim params frozen for the measurement
+                                      (cg_ratio, wing_*, stab_*, s_twist, incidence angle, alpha_to)
         - "atmosphere"              : asb.Atmosphere
         - "v_cruise"                : float (m/s)
         - "x_fuselage_start"        : float (m)
@@ -48,7 +48,7 @@ def _measure_de_da_at(ctx: dict, fl: float) -> tuple:
     a_m = asb.VortexLatticeMethod(plane_vlm, op_m).run()
     sm_vlm = -(float(a_p["Cm"]) - float(a_m["Cm"])) / (float(a_p["CL"]) - float(a_m["CL"]))
 
-    # Inversion : SM_VLM = X_ac_w/c + V_H × (CL_a_s/CL_a_w) × (1 − de_da) − X_cg/c
+    # Inversion: SM_VLM = X_ac_w/c + V_H × (CL_a_s/CL_a_w) × (1 − de_da) − X_cg/c
     AR_w = float(wing.aspect_ratio())
     AR_s = float(stab.aspect_ratio())
     CL_a_w = _cl_alpha_helmbold(AR_w)
@@ -65,16 +65,16 @@ def _measure_de_da_at(ctx: dict, fl: float) -> tuple:
 
 def calibrate(ctx: dict, verbose: bool = True) -> tuple:
     """
-    Recalibre (DE_DA_SLOPE, DE_DA_INTERCEPT) via 4 appels VLM aux bornes de
-    fuselage_length + régression linéaire. Self-contained — utilise UNIQUEMENT
-    ctx (aucune dépendance globale). Retourne (slope, intercept).
+    Recalibrates (DE_DA_SLOPE, DE_DA_INTERCEPT) via 4 VLM calls at the
+    fuselage_length bounds + linear regression. Self-contained — uses ONLY
+    ctx (no global dependency). Returns (slope, intercept).
 
-    `ctx` doit contenir tout ce qu'attend _measure_de_da_at, plus :
+    `ctx` must contain everything _measure_de_da_at expects, plus:
         - "fuselage_length_bounds"  : (fl_lo, fl_hi)
     """
     fl_lo, fl_hi = ctx["fuselage_length_bounds"]
     if verbose:
-        print(f"  Calibration de_da via VLM (4 appels, ~3s)...", flush=True)
+        print(f"  de_da calibration via VLM (4 calls, ~3s)...", flush=True)
 
     d_lo, _, _ = _measure_de_da_at(ctx, fl_lo)
     d_hi, _, _ = _measure_de_da_at(ctx, fl_hi)

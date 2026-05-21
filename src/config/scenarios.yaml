@@ -1,104 +1,104 @@
 # =============================================================================
-# scenarios.yaml — Contraintes aérodynamiques par discipline
+# scenarios.yaml — Aerodynamic constraints per discipline
 # =============================================================================
-#   - Toutes les disciplines visent un foil "performant freeride" : polyvalent,
-#     accessible, calibré sur les modèles industriels de référence.
-#   - Pas de subdivision par niveau pilote : une seule plage ω_n par discipline.
+#   - All disciplines target a "performant freeride" foil: versatile,
+#     accessible, calibrated on reference industrial models.
+#   - No subdivision by pilot level: one single ω_n range per discipline.
 # =============================================================================
 
 
 # -----------------------------------------------------------------------------
 # WINGFOIL FREERIDE
-# Référence : AXIS BSC 890 (1290 cm², AR 7)
+# Reference: AXIS BSC 890 (1290 cm², AR 7)
 # -----------------------------------------------------------------------------
 wingfoil:
-  v_takeoff: 5.5            # m/s — décollage freeride accessible (9.7 kts)
-  v_cruise: 9.5             # m/s — croisière confortable (~17.5 kts)
+  v_takeoff: 5.5            # m/s — accessible freeride takeoff (9.7 kts)
+  v_cruise: 9.5             # m/s — comfortable cruise (~17.5 kts)
 
-  # Marge décollage : fraction de CL_max utilisée au takeoff.
+  # Takeoff margin: fraction of CL_max used at takeoff.
   takeoff_cl_margin: 0.55
 
-  # Pilotabilité — ω_n cible (Hz) pour un foil freeride équilibré.
+  # Handling — target ω_n (Hz) for a balanced freeride foil.
   pilotability_freq: [2.2, 3.0]
 
-  stab_load_range:          # Force stab cruise (N, négatif = déportance).
-    - -70.0                 
-    - -20.0                 
+  stab_load_range:          # Stab force at cruise (N, negative = downforce).
+    - -70.0
+    - -20.0
 
   stab_control_authority_min_N_per_deg: 55
-  # Autorité de contrôle minimale (dF_stab/dα, N par degré α). Ref : BSC 890 + Skinny 168 = 77 N/°
+  # Minimum control authority (dF_stab/dα, N per degree α). Ref: BSC 890 + Skinny 168 = 77 N/°
 
-  cg_range:                 # Garde-fou numérique seulement
-    - 0.05                  
-    - 0.65                  
+  cg_range:                 # Numerical safeguard only
+    - 0.05
+    - 0.65
 
   cg_ratio_init: 0.38
 
-  fuselage_length_bounds:   # Bras stab — wingfoil freeride
-    - 0.65                  #   borne basse : moment cambré SD7062 demande de l'arm
+  fuselage_length_bounds:   # Stab moment arm — wingfoil freeride
+    - 0.65                  #   lower bound: cambered SD7062 moment requires arm
     - 0.95
   fuselage_length_init: 0.75
 
-  rig_mass_kg: 3            # Wing léger (3-4 kg typique)
+  rig_mass_kg: 3            # Light wing (typically 3-4 kg)
 
-  # Foil de référence : AXIS BSC 890 (1290 cm², AR 6.43, max chord 170 mm)
-  # Stab compagnon : AXIS Skinny 365/55 (168 cm², AR 8.06)
+  # Reference foil: AXIS BSC 890 (1290 cm², AR 6.43, max chord 170 mm)
+  # Companion stab: AXIS Skinny 365/55 (168 cm², AR 8.06)
   wing_airfoil:         "naca2412"
-  # Prendre des profils cambré à au moins 4 %, NACA 4412, 4415, Eppler 387, HQ17, SD7037
+  # Use cambered profiles of at least 4%, NACA 4412, 4415, Eppler 387, HQ17, SD7037
 
   wing_span_init:       0.890
   wing_root_chord_init: 0.170
   wing_span_bounds:       [0.85, 1.20]
   wing_root_chord_bounds: [0.13, 0.25]
-  wing_aspect_ratio_max:  9.5  
+  wing_aspect_ratio_max:  7.0
   stab_span:       0.365
   stab_root_chord: 0.055
 
 
 # -----------------------------------------------------------------------------
 # WINDSURF FREERIDE
-# Référence : Starboard Race 800
+# Reference: Starboard Race 800
 # -----------------------------------------------------------------------------
 windsurf:
-  v_takeoff: 7.0            # m/s — décollage nécessite plus de vitesse (~13.6 kts)
-  v_cruise: 13.0            # m/s — croisière freeride windsurf (~25,27 kts)
+  v_takeoff: 7.0            # m/s — takeoff requires more speed (~13.6 kts)
+  v_cruise: 13.0            # m/s — windsurf freeride cruise (~25-27 kts)
 
-  # Windsurf race-freeride : on tolère de s'approcher plus du CL_max au takeoff
+  # Windsurf race-freeride: we tolerate getting closer to CL_max at takeoff
   takeoff_cl_margin: 0.70
 
-  # Windsurf race-freeride : foil réactif à 13 m/s.
+  # Windsurf race-freeride: reactive foil at 13 m/s.
   pilotability_freq: [2.8, 3.8]
 
-  stab_load_range:          # Déportance pour contrer Cm₀ aile + moment du gréement.
-    - -110.0                
-    - -25.0                 
+  stab_load_range:          # Downforce to counter wing Cm₀ + rig moment.
+    - -110.0
+    - -25.0
 
-  stab_control_authority_min_N_per_deg: 130  # Réalisme freeride  
+  stab_control_authority_min_N_per_deg: 130  # Freeride realism
 
-  cg_range:                 # Fenêtre [0.30, 0.45] : seuil anti-tandem empirique.
-    - 0.30                 
-    - 0.45                           
+  cg_range:                 # Window [0.30, 0.45]: empirical anti-tandem threshold.
+    - 0.30
+    - 0.45
 
   cg_ratio_init: 0.40
 
-  fuselage_length_bounds:   # Bras stab — windsurf race-freeride
-    - 0.70                 
-    - 1.00                  
+  fuselage_length_bounds:   # Stab moment arm — windsurf race-freeride
+    - 0.70
+    - 1.00
 
   fuselage_length_init: 0.80
 
-  rig_mass_kg: 9            # Voile + mât + wishbone
+  rig_mass_kg: 9            # Sail + mast + wishbone
 
-  # Foil de référence : Starboard Race 800 (800 cm², AR 8.0, span 800 mm)
-  # Stab compagnon : Starboard Tail 255 (255 cm², span 400 mm, AR 6.3)
+  # Reference foil: Starboard Race 800 (800 cm², AR 8.0, span 800 mm)
+  # Companion stab: Starboard Tail 255 (255 cm², span 400 mm, AR 6.3)
   wing_airfoil:         "naca2412"
-  # Profils entre 2 et 3% de cambrure, NACA 2410, 2412, HT13
+  # Profiles between 2 and 3% camber, NACA 2410, 2412, HT13
 
   wing_span_init:       0.800
   wing_root_chord_init: 0.120
-  wing_span_bounds:       [0.78, 1.10]  
-  wing_root_chord_bounds: [0.12, 0.20]   
-  wing_aspect_ratio_max:  8.5            # contraintes de manufacturing principalement
+  wing_span_bounds:       [0.78, 1.10]
+  wing_root_chord_bounds: [0.12, 0.20]
+  wing_aspect_ratio_max:  8.5            # mainly manufacturing constraints
 
   stab_span:       0.400
   stab_root_chord: 0.076
@@ -108,98 +108,98 @@ windsurf:
 # DOWNWIND FREERIDE
 # -----------------------------------------------------------------------------
 downwind:
-  v_takeoff: 6.0         
-  v_cruise: 10.0            # m/s — vitesse typique downwind freeride (~ 20 kts)
+  v_takeoff: 6.0
+  v_cruise: 10.0            # m/s — typical downwind freeride speed (~20 kts)
 
-  # Downwind = glisse sur houle, foil grand pour stabilité → marge généreuse
+  # Downwind = gliding on swell, large foil for stability → generous margin
   takeoff_cl_margin: 0.55
 
-  # Downwind à 10 m/s, q=50 kPa. Scaling ω_n ∝ √q : q=45 (wingfoil) → 2.59 Hz@
+  # Downwind at 10 m/s, q=50 kPa. Scaling ω_n ∝ √q: q=45 (wingfoil) → 2.59 Hz@
   pilotability_freq: [2.0, 3.2]
 
-  stab_load_range:          # Avec auth 90 → stab dimensionné HA 195 (~180 cm²),
-    - -60.0                 
-    - -3.0                  
+  stab_load_range:          # With auth 90 → stab sized HA 195 (~180 cm²),
+    - -60.0
+    - -3.0
 
-  stab_control_authority_min_N_per_deg: 90 # Ref HA 1080 + HA 195 = 97.5 N/° (à q=50 kPa)
+  stab_control_authority_min_N_per_deg: 90 # Ref HA 1080 + HA 195 = 97.5 N/° (at q=50 kPa)
 
-  cg_range:                 # Garde-fou numérique — pilotabilité via ω_n.
+  cg_range:                 # Numerical safeguard — handling via ω_n.
     - 0.05
     - 0.65
 
   cg_ratio_init: 0.23
 
-  fuselage_length_bounds:   # Bras stab — downwind freeride
-    - 0.60                  #   intermédiaire entre pumping et wingfoil
+  fuselage_length_bounds:   # Stab moment arm — downwind freeride
+    - 0.60                  #   intermediate between pumping and wingfoil
     - 0.90
   fuselage_length_init: 0.75
 
   rig_mass_kg: 0
 
-  # Foil de référence : Armstrong HA 1080 (1080 cm², AR 9.6, span 1020 mm)
+  # Reference foil: Armstrong HA 1080 (1080 cm², AR 9.6, span 1020 mm)
   #   High-aspect — surf/downwind/wing intermediate-to-expert
-  # Stab compagnon : Armstrong HA 195 (195 cm², span 385 mm, AR 7.6)
+  # Companion stab: Armstrong HA 195 (195 cm², span 385 mm, AR 7.6)
 
-  # Override AR stab (idem pumping) : HA 195 = AR 7.6 high-aspect downwind stab.
+  # Override stab AR (same as pumping): HA 195 = AR 7.6 high-aspect downwind stab.
   stab_aspect_ratio_range: [6.5, 12.0]
 
   wing_airfoil:         "e387"
-  # profils thin laminar pour glisse longue, E387, E186, NACA 2412, HQ17
+  # Thin laminar profiles for long glide, E387, E186, NACA 2412, HQ17
   wing_span_init:       1.020
   wing_root_chord_init: 0.128
-  wing_span_bounds:       [0.95, 1.25]   
-  wing_root_chord_bounds: [0.11, 0.22]   
-  wing_aspect_ratio_max:  9.5            
+  wing_span_bounds:       [0.95, 1.25]
+  wing_root_chord_bounds: [0.11, 0.22]
+  wing_aspect_ratio_max:  9.5
   stab_span:       0.385
   stab_root_chord: 0.060
 
 
 # -----------------------------------------------------------------------------
 # PUMPING FREERIDE
-# Référence : HA 1525
+# Reference: HA 1525
 # -----------------------------------------------------------------------------
 pumping:
-  v_takeoff: 3.5            # m/s — décollage à très basse vitesse (~6 kts)
-  v_cruise: 6.0             # m/s — vitesse de croisière pompage (~12kts)
+  v_takeoff: 3.5            # m/s — takeoff at very low speed (~6 kts)
+  v_cruise: 6.0             # m/s — pumping cruise speed (~12 kts)
 
-  # le foil doit donner tout ce qu'il a au décollage. Pas de marge → foil naturellement gros.
+  # The foil must give everything it has at takeoff. No margin → naturally large foil.
   takeoff_cl_margin: 0.85
 
-  # Pumping = cycles d'effort à très basse vitesse => ω_n basse 
+  # Pumping = effort cycles at very low speed => low ω_n
   pilotability_freq: [1.3, 1.9]
 
-  stab_load_range:          # Pumping avec wing cambré (NACA 4412) demande mécaniquement
-    - -90.0                 # ~-50 à -80 N de download avec stab dimensionné HA 195
-    - -10.0                
+  stab_load_range:          # Pumping with cambered wing (NACA 4412) mechanically requires
+    - -90.0                 # ~-50 to -80 N of download with stab sized HA 195
+    - -10.0
 
-  stab_control_authority_min_N_per_deg: 35 # Ref HA 1525 + HA 195 = 36 N/° 
+  stab_control_authority_min_N_per_deg: 35 # Ref HA 1525 + HA 195 = 36 N/°
 
-  cg_range:                 # Garde-fou numérique — pilotabilité via ω_n.
+  cg_range:                 # Numerical safeguard — handling via ω_n.
     - 0.05
     - 0.65
 
   cg_ratio_init: 0.25
 
-  fuselage_length_bounds:   # Bras stab — pumping freeride
-    - 0.45                  #   court pour réactivité / agilité en pumping
+  fuselage_length_bounds:   # Stab moment arm — pumping freeride
+    - 0.45                  #   short for reactivity / agility in pumping
     - 0.75
   fuselage_length_init: 0.60
 
-  rig_mass_kg: 0            # Aucun gréement
+  rig_mass_kg: 0            # No rig
 
-  # Foil de référence : Armstrong HA 1525 (1525 cm², AR 9.5, span 1200 mm)
+  # Reference foil: Armstrong HA 1525 (1525 cm², AR 9.5, span 1200 mm)
   #   High-aspect pumping wing, intermediate-to-expert flatwater riders
-  # Stab compagnon : Armstrong HA 195 (idem downwind, kit officiel HA1525 + HA195)
+  # Companion stab: Armstrong HA 195 (same as downwind, official HA1525 + HA195 kit)
 
   stab_aspect_ratio_range: [6.5, 12.0]
 
   wing_airfoil:         "naca4412"
-  # E423/SD7062 (Cm₀ ≈ -0.15) demandent un download stab non-physique en steady-state
-  # pour le pumping (-100 N+)
+  # E423/SD7062 (Cm₀ ≈ -0.15) require a non-physical stab download in steady-state
+  # for pumping (-100 N+)
   wing_span_init:       1.200
   wing_root_chord_init: 0.154
-  wing_span_bounds:       [1.05, 1.35]  
-  wing_root_chord_bounds: [0.14, 0.25] 
-  wing_aspect_ratio_max:  9.5 
+  wing_span_bounds:       [1.05, 1.35]
+  wing_root_chord_bounds: [0.14, 0.25]
+  wing_aspect_ratio_max:  9.5
   stab_span:       0.385
   stab_root_chord: 0.060

@@ -49,7 +49,7 @@ V2 works, but giving the airfoil that much freedom makes the search costly and n
 
 ### How the geometry is built
 
-The wing chord is fixed and follows a pure ellipse, $c(r) = c_{tip} + (c_{root} − c_{tip}) . \sqrt(1 − r^2)$; I added classical dihedral (and anhedral resp. for the stab) and sweep angles to guarantee an aesthetically pleasing and anti-algae shape. I figured that setting the tip chord for both wings at around 30% of the root chord is non critical to the optimisation and reduces the number of variables.
+The wing chord is fixed and follows a pure ellipse, $c(r) = c_{tip} + (c_{root} − c_{tip}) . \sqrt{1 − r^2}$; I added classical dihedral (and anhedral resp. for the stab) and sweep angles to guarantee an aesthetically pleasing and anti-algae shape. I figured that setting the tip chord for both wings at around 30% of the root chord is non critical to the optimisation and reduces the number of variables.
 
 Each scenario is anchored to a real industry foil whose specifications are public. The warm-start dimensions and the companion stab were chosen so that the optimizer starts from a known good design and the area target range overlaps the manufacturer's value.
 
@@ -73,8 +73,8 @@ This is the part that took the longest to figure out. The classical aircraft sta
 
 Getting an accurate $Cm_{\alpha}$ turned out to be the harder problem. I tried two approaches:
 
-1. **Analytical formula + empirical de_da calibration** (`calibrate_de_da.py`, kept for reference). The textbook $Cm_{\alpha} = -SM \times CL_{\alpha, total}$ with $SM$ from a vortex-horsepower formula needs an $\epsilon = \text{de_da}$ term for the downwash the stab sees. The textbook $4/(AR+2) \approx 0.5$ is wildly off for hydrofoils — the tail arm is so long that the downwash has mostly dissipated by the time it reaches the stab. So at startup, the script ran 4 VLM calls at the bounds of `fuselage_length` to invert the formula and fit `de_da(fl) = slope·fl + intercept` by linear regression. 
-2. **Direct finite-difference on AeroBuildup** (current). The trim solver already calls AeroBuildup at $\alpha = 0 \deg$ and $\alpha = 3 \deg$ to bracket the cruise lift target. Those two calls return $Cm$ too, so $dCm/d\alpha = (Cm_{hi} − Cm_{lo}) / \Delta \alpha$ is free — no extra solver call, no startup VLM. AeroBuildup includes the actual wing→stab downwash (via its lifting-line strip integration), so the resulting $Cm_{\alpha}$ is within ~3 % of a full VLM verification, vs the 15-25 % residual error the analytical formula carried even with calibrated `de_da`.
+1. **Analytical formula + empirical de_da calibration** (`calibrate_de_da.py`, kept for reference). The textbook $Cm_{\alpha} = -SM \times CL_{\alpha, total}$ with $SM$ from a vortex-horsepower formula needs an $\epsilon$ = de_da term for the downwash the stab sees. The textbook $4/(AR+2) \approx 0.5$ is wildly off for hydrofoils — the tail arm is so long that the downwash has mostly dissipated by the time it reaches the stab. So at startup, the script ran 4 VLM calls at the bounds of `fuselage_length` to invert the formula and fit `de_da(fl) = slope·fl + intercept` by linear regression. 
+2. **Direct finite-difference on AeroBuildup** (current). The trim solver already calls AeroBuildup at $\alpha = 0^{\circ}$ and $\alpha = 3^{\circ}$ to bracket the cruise lift target. Those two calls return $Cm$ too, so $dCm/d\alpha = (Cm_{hi} − Cm_{lo}) / \Delta \alpha$ is free — no extra solver call, no startup VLM. AeroBuildup includes the actual wing→stab downwash (via its lifting-line strip integration), so the resulting $Cm_{\alpha}$ is within ~3 % of a full VLM verification, vs the 15-25 % residual error the analytical formula carried even with calibrated `de_da`.
    
 The second approach was chosen, because the calculation additional costs were negligeable, and the precision on stability was crucial to the optimisation.
 
@@ -106,8 +106,9 @@ With this new fatigue-based criterion, AR 11 sits at the limit, AR 15 and above 
 
 ### Optimization convergence
 
-The script was confirmed deterministic under a fixed seed. With the default configuration (`N_starts: 3`, scipy seed = 42, Sobol-scrambled initial population), every scenario re-run after its reference produces the same geometry and trim values to 3 decimal places. 
-I dropped the multistart mode which gave no significant change in regards to the single-start mode, which convergence was reached within ~60 DE generations (≈ 9 minutes wall-clock on a laptop CPU).
+The script was confirmed deterministic under a fixed seed. With the default configuration (`N_starts: 2`, scipy seed = 42, Sobol-scrambled initial population, DE settles within ~60 generations / ≈ 9 minutes on a laptop CPU), the four scenarios were re-run after their reference runs and reproduced bit-for-bit, to all three decimal places of every metric in the technical file. 
+
+I previously kept a multistart mode (`N_starts: 3`) that re-ran DE from independent Sobol initialisations and kept the best. The run-to-run spread on `D_cruise` and `ω_n` was consistently under **1 %**, so for ten extra minutes of compute the multistart bought essentially nothing on top of single-start mode — that was the trigger for dropping it as a default.
 
 ### XFLR5 Validation
 
@@ -115,16 +116,16 @@ I dropped the multistart mode which gave no significant change in regards to the
 
 **Hydrodynamic checks (VLM2, 30 chordwise × 50 spanwise panels per surface, seawater density)**
 
-* α-sweep from -3° to 10° at v_cruise → CL(α), CD(α), L/D curves. Compare CL at the predicted cruise α to AeroBuildup (DE phase) and LiftingLine (3D refinement); we expect AeroBuildup to under-predict CL by 5-10 % and LiftingLine to land within 2-3 % of XFLR5.
-* Spanwise circulation and induced-drag distribution at cruise α — confirm the elliptic planform actually approaches elliptic loading, sanity-check the wing/stab downwash interaction that AeroBuildup misses.
-* Cp distribution at cruise α on the wing and stab root sections — verify no localised cavitation pocket below σ_v that the AeroBuildup-based Cp_min check might have glossed over.
+* $\alpha_{sweep}$ from -3° to 10° at $v_{cruise} \rightarrow CL(\alpha), CD(\alpha), L/D$ curves. Compare $CL$ at the predicted cruise $\alpha$ to AeroBuildup (DE phase) and LiftingLine (3D refinement); we expect AeroBuildup to under-predict $CL$ by 5-10 % and LiftingLine to land within 2-3 % of XFLR5.
+* Spanwise circulation and induced-drag distribution at cruise $\alpha$ — confirm the elliptic planform actually approaches elliptic loading, sanity-check the wing/stab downwash interaction that AeroBuildup misses.
+* $Cp$ distribution at cruise α on the wing and stab root sections — verify no localised cavitation pocket below $\sigma_v$ that the AeroBuildup-based $Cp_{min}$ check might have glossed over.
 
 **Stability checks (XFLR5 stability analyser with `I_yy = m_total · r_gyr²`)**
 
-* Trim α found by XFLR5 should match `alpha_cruise` from the fiche technique within a few tenths of a degree.
-* Short-period eigenvalue → ω_n in Hz. This is the key cross-check, because our ω_n comes from a finite-difference `Cm_α` on AeroBuildup at α = 0° and 3°. XFLR5's eigenvalue includes the full inertia matrix and pitch damping, so agreement within ~15 % validates the dimensional ω_n we use as a freeride pilotability target.
-* `Cm_α`, `CL_α`, `Cm_q` derivatives at trim α → compare with our 2D values; tail downwash (`dε/dα`) is included by XFLR5, so this isolates how much error our AeroBuildup-based `Cm_α` carries.
-* Neutral point location relative to CG — confirms the sign and magnitude of SM independently of the downwash calibration baked into AeroBuildup.
+* Trim $\alpha$ found by XFLR5 should match `alpha_cruise` from the fiche technique within a few tenths of a degree.
+* Short-period eigenvalue → ω_n in Hz. This is the key cross-check, because our ω_n comes from a finite-difference $Cm_{\alpha}$ on AeroBuildup at $\alpha$ = 0° and 3°. XFLR5's eigenvalue includes the full inertia matrix and pitch damping, so agreement within ~15 % validates the dimensional ω_n we use as a freeride pilotability target.
+* The derivatives of aerodynamic coefficients at trim $\alpha$ → compare with our 2D values; tail downwash ($d\epsilon/d\alpha$) is included by XFLR5, so this isolates how much error our AeroBuildup-based $Cm_{\alpha}$ carries.
+* Neutral point location relative to $CG$ — confirms the sign and magnitude of $SM$ independently of the downwash calibration baked into AeroBuildup.
 
 Outcome: one validation table per scenario in this README, listing predicted vs XFLR5 values with the percentage gap, so failure modes of the cheap solvers used inside DE are made explicit.
 

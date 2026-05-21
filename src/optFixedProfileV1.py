@@ -1,5 +1,5 @@
 # ==================================================================================
-# === Hydrofoil Optimization Script - Recherche Paramétrique NACA - Solver IPOPT ===
+# === Hydrofoil Optimization Script - NACA Parametric Search - IPOPT Solver ========
 # ==================================================================================
 
 import os
@@ -14,21 +14,21 @@ import yaml
 # ==============================   CONFIGURATION    =======================================
 # =========================================================================================
 
-# --- Configuration Chemins & Atmosphère ---
+# --- Paths & Atmosphere configuration ---
 ROOT = Path(__file__).resolve().parent
 sys.path.append(str(ROOT))
 from config.water_atmosphere import Water as Atmosphere
 
-# --- Chargement de la configuration physique globale ---
-with open("/Users/thomas/Documents/Dossier Supaero/clubs/Foil/Foil-Optimization-Algorithm/src/config/parameters.yaml") as f:
+# --- Load global physical configuration ---
+with open(ROOT / "config" / "parameters.yaml") as f:
     phy = yaml.safe_load(f)
 
 CASE = phy["case"]
 
-# Masses & Poids
+# Masses & Weights
 mass = phy["pilot"]["mass_kg"] + phy["board"]["mass_kg"]
 
-# Espaces de recherche
+# Search spaces
 cambrures       = phy["search_space"]["cambrures"]
 epaisseurs_root = phy["search_space"]["epaisseurs_root"]
 angle_reflex    = phy["search_space"]["angle_reflex"]
@@ -37,7 +37,7 @@ angle_reflex    = phy["search_space"]["angle_reflex"]
 alpha_bounds = phy["alpha"]["bounds"]
 alpha_init   = phy["alpha"]["init"]
 
-# Aile
+# Wing
 wing_span_bounds      = phy["wing"]["span_bounds"]
 wing_span_init        = phy["wing"]["span_init"]
 root_chord_bounds     = phy["wing"]["root_chord_bounds"]
@@ -58,7 +58,7 @@ fuselage_diameter   = phy["fuselage"]["diameter"]
 x_fuselage_start    = phy["fuselage"]["x_start"]
 N_sections_fuselage = phy["fuselage"]["n_sections"]
 
-# Mât
+# Mast
 mast_length          = phy["mast"]["length"]
 profondeur_immersion = phy["mast"]["immersion_depth"]
 mast_chord_top       = phy["mast"]["chord_top"]
@@ -69,7 +69,7 @@ N_sections_mast      = phy["mast"]["n_sections"]
 ratio_immersion      = profondeur_immersion / mast_length
 chord_at_water_line  = mast_chord_bot * (1 - ratio_immersion) + mast_chord_top * ratio_immersion
 
-# Stab
+# Stabilizer
 stab_span_bounds       = phy["stab"]["span_bounds"]
 stab_span_init         = phy["stab"]["span_init"]
 stab_root_chord_bounds = phy["stab"]["root_chord_bounds"]
@@ -82,21 +82,21 @@ s_sweep_deg            = phy["stab"]["sweep_deg"]
 stab_dihedral_deg      = phy["stab"]["dihedral_deg"]
 N_sections_stab        = phy["stab"]["n_sections"]
 
-# --- Chargement du scénario actif ---
-with open("/Users/thomas/Documents/Dossier Supaero/clubs/Foil/Foil-Optimization-Algorithm/src/config/scenarios.yaml") as f:
+# --- Load active scenario ---
+with open(ROOT / "config" / "scenarios.yaml") as f:
     SCENARIOS = yaml.safe_load(f)
 
 if CASE not in SCENARIOS:
-    raise ValueError(f"Cas '{CASE}' introuvable dans scenarios.yaml. Options : {list(SCENARIOS.keys())}")
+    raise ValueError(f"Case '{CASE}' not found in scenarios.yaml. Options: {list(SCENARIOS.keys())}")
 cfg = SCENARIOS[CASE]
 
-rig_mass = cfg["rig_mass_kg"]  # Masse du gréement 
-total_mass = mass + rig_mass  # Masse totale du système (pilote + planche + gréement)
-weight     = total_mass * 9.81  # Poids total (N)
+rig_mass = cfg["rig_mass_kg"]  # Rig mass
+total_mass = mass + rig_mass  # Total system mass (pilot + board + rig)
+weight     = total_mass * 9.81  # Total weight (N)
 
 
 # =========================================================================================
-# ==============================   PROFILS NACA    ========================================
+# ==============================   NACA AIRFOILS    =======================================
 # =========================================================================================
 
 def get_airfoil(name: str) -> asb.Airfoil:
@@ -113,8 +113,8 @@ def interpolate_airfoil(af1: asb.Airfoil, af2: asb.Airfoil, r: float) -> asb.Air
 
 def apply_reflex_to_naca(naca_name: str, reflex_angle_deg: float) -> asb.Airfoil:
     """
-    Applique une déformation 'Reflex' (S-Shape) sur les 30% arrière du profil.
-    Permet de contrôler le moment de tangage sans modifier la cambrure globale.
+    Applies a 'Reflex' deformation (S-Shape) on the rear 30% of the airfoil.
+    Allows control of the pitching moment without modifying the overall camber.
     """
     base_af = asb.Airfoil(naca_name)
     x = base_af.coordinates[:, 0]
@@ -131,184 +131,184 @@ def apply_reflex_to_naca(naca_name: str, reflex_angle_deg: float) -> asb.Airfoil
 
 
 # =========================================================================================
-# ==============================   EXPORT FICHE TECHNIQUE   ===============================
+# ==============================   TECHNICAL SHEET EXPORT   ===============================
 # =========================================================================================
 
 def export_fiche_technique(
     out_dir, root_naca_profile,
-    # Géométrie aile
+    # Wing geometry
     val_surface, val_span, val_ar, val_root_c, val_tip_c, val_twist, wing_loading, reflex_angle_deg,
-    # Géométrie stab
+    # Stabilizer geometry
     val_s_surface, val_s_span, val_s_ar, val_s_root_c, val_s_twist, val_fuselage_length,
-    # Performances
+    # Performance
     val_finesse, val_trainee, val_alpha, Re_root, Re_tip, CL_cruise, CD_cruise, CL_stab,
-    # Stabilité
+    # Stability
     val_sm, val_cg, val_xcg, val_force_stab, val_moment, val_vh,
 ):
     """
-    Exporte la fiche technique du design optimisé dans un fichier Markdown.
+    Exports the technical sheet of the optimized design to a Markdown file.
     """
     now_str  = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     filepath = os.path.join(out_dir, "fiche_technique.md")
     lines    = []
 
-    # En-tête
+    # Header
     lines += [
-        f"# Fiche Technique — {CASE.upper()} | {root_naca_profile.upper()}",
+        f"# Technical Sheet — {CASE.upper()} | {root_naca_profile.upper()}",
         f"",
-        f"*Générée le {now_str}*",
+        f"*Generated on {now_str}*",
         f"",
         f"---",
         f"",
     ]
 
-    # Snapshot des paramètres d'entrée
+    # Snapshot of input parameters
     lines += [
-        f"## 0. Paramètres du run",
+        f"## 0. Run Parameters",
         f"",
-        f"### Recherche paramétrique",
-        f"| Paramètre | Valeur |",
+        f"### Parametric search",
+        f"| Parameter | Value |",
         f"|:---|:---|",
-        f"| Cambrures testées | {cambrures} |",
-        f"| Épaisseurs root testées | {epaisseurs_root} |",
-        f"| Angles reflex testés | {angle_reflex} |",
-        f"| Profil root retenu | {root_naca_profile.upper()} |",
-        f"| Angle reflex retenu | {reflex_angle_deg}° |",
+        f"| Cambers tested | {cambrures} |",
+        f"| Root thicknesses tested | {epaisseurs_root} |",
+        f"| Reflex angles tested | {angle_reflex} |",
+        f"| Selected root airfoil | {root_naca_profile.upper()} |",
+        f"| Selected reflex angle | {reflex_angle_deg}° |",
         f"",
-        f"### Bornes d'optimisation — Aile",
-        f"| Variable | Borne min | Borne max | Init |",
+        f"### Optimization bounds — Wing",
+        f"| Variable | Min bound | Max bound | Init |",
         f"|:---|:---|:---|:---|",
-        f"| Envergure (m) | {wing_span_bounds[0]} | {wing_span_bounds[1]} | {wing_span_init} |",
-        f"| Corde root (m) | {root_chord_bounds[0]} | {root_chord_bounds[1]} | {root_chord_init} |",
-        f"| Corde tip (m) | {tip_chord_bounds[0]} | {tip_chord_bounds[1]} | {tip_chord_init} |",
-        f"| Vrillage (°) | {twist_bounds[0]} | {twist_bounds[1]} | {twist_init} |",
+        f"| Span (m) | {wing_span_bounds[0]} | {wing_span_bounds[1]} | {wing_span_init} |",
+        f"| Root chord (m) | {root_chord_bounds[0]} | {root_chord_bounds[1]} | {root_chord_init} |",
+        f"| Tip chord (m) | {tip_chord_bounds[0]} | {tip_chord_bounds[1]} | {tip_chord_init} |",
+        f"| Twist (°) | {twist_bounds[0]} | {twist_bounds[1]} | {twist_init} |",
         f"",
-        f"### Bornes d'optimisation — Stabilisateur",
-        f"| Variable | Borne min | Borne max | Init |",
+        f"### Optimization bounds — Stabilizer",
+        f"| Variable | Min bound | Max bound | Init |",
         f"|:---|:---|:---|:---|",
-        f"| Envergure (m) | {stab_span_bounds[0]} | {stab_span_bounds[1]} | {stab_span_init} |",
-        f"| Corde root (m) | {stab_root_chord_bounds[0]} | {stab_root_chord_bounds[1]} | {stab_root_chord_init} |",
-        f"| Corde tip (m) | {stab_tip_chord_bounds[0]} | {stab_tip_chord_bounds[1]} | {stab_tip_chord_init} |",
-        f"| Calage (°) | {s_twist_bounds[0]} | {s_twist_bounds[1]} | {s_twist_init} |",
+        f"| Span (m) | {stab_span_bounds[0]} | {stab_span_bounds[1]} | {stab_span_init} |",
+        f"| Root chord (m) | {stab_root_chord_bounds[0]} | {stab_root_chord_bounds[1]} | {stab_root_chord_init} |",
+        f"| Tip chord (m) | {stab_tip_chord_bounds[0]} | {stab_tip_chord_bounds[1]} | {stab_tip_chord_init} |",
+        f"| Incidence angle (°) | {s_twist_bounds[0]} | {s_twist_bounds[1]} | {s_twist_init} |",
         f"",
-        f"### Bornes d'optimisation — Fuselage & CG",
-        f"| Variable | Borne min | Borne max | Init |",
+        f"### Optimization bounds — Fuselage & CG",
+        f"| Variable | Min bound | Max bound | Init |",
         f"|:---|:---|:---|:---|",
-        f"| Longueur fuselage (m) | {fuselage_bounds[0]} | {fuselage_bounds[1]} | {fuselage_init} |",
-        f"| Ratio CG | {cfg['cg_range'][0]} | {cfg['cg_range'][1]} | {cfg['cg_ratio_init']} |",
+        f"| Fuselage length (m) | {fuselage_bounds[0]} | {fuselage_bounds[1]} | {fuselage_init} |",
+        f"| CG ratio | {cfg['cg_range'][0]} | {cfg['cg_range'][1]} | {cfg['cg_ratio_init']} |",
         f"",
-        f"### Contraintes scénario — {CASE.upper()}",
-        f"| Contrainte | Min | Max |",
+        f"### Scenario constraints — {CASE.upper()}",
+        f"| Constraint | Min | Max |",
         f"|:---|:---|:---|",
-        f"| Surface aile (m²) | {cfg['area_target_range'][0]} | {cfg['area_target_range'][1]} |",
-        f"| Surface stab (m²) | {cfg['stab_area_range'][0]} | {cfg['stab_area_range'][1]} |",
-        f"| Marge statique | {cfg['sm_range'][0]} | {cfg['sm_range'][1]} |",
-        f"| Force stab (N) | {cfg['stab_load_range'][0]} | {cfg['stab_load_range'][1]} |",
-        f"| Volume de queue | {cfg['vh_range'][0]} | {cfg['vh_range'][1]} |",
+        f"| Wing area (m²) | {cfg['area_target_range'][0]} | {cfg['area_target_range'][1]} |",
+        f"| Stab area (m²) | {cfg['stab_area_range'][0]} | {cfg['stab_area_range'][1]} |",
+        f"| Static margin | {cfg['sm_range'][0]} | {cfg['sm_range'][1]} |",
+        f"| Stab force (N) | {cfg['stab_load_range'][0]} | {cfg['stab_load_range'][1]} |",
+        f"| Tail volume | {cfg['vh_range'][0]} | {cfg['vh_range'][1]} |",
         f"",
         f"---",
         f"",
     ]
 
-    # Conditions de vol
+    # Flight conditions
     lines += [
-        f"## Conditions de vol",
+        f"## Flight conditions",
         f"",
-        f"| Paramètre | Valeur |",
+        f"| Parameter | Value |",
         f"|:---|:---|",
-        f"| Cas | {CASE} |",
-        f"| Poids total | {weight:.1f} N ({weight/9.81:.0f} kg) |",
-        f"| Vitesse décollage | {cfg['v_takeoff']} m/s |",
-        f"| Vitesse croisière | {cfg['v_cruise']} m/s |",
+        f"| Case | {CASE} |",
+        f"| Total weight | {weight:.1f} N ({weight/9.81:.0f} kg) |",
+        f"| Takeoff speed | {cfg['v_takeoff']} m/s |",
+        f"| Cruise speed | {cfg['v_cruise']} m/s |",
         f"",
         f"---",
         f"",
     ]
 
-    # Géométrie aile
+    # Wing geometry
     lines += [
-        f"## 1. Géométrie Aile",
+        f"## 1. Wing Geometry",
         f"",
-        f"| Paramètre | Valeur |",
+        f"| Parameter | Value |",
         f"|:---|:---|",
-        f"| Profil | {root_naca_profile.upper()} |",
-        f"| Surface | {val_surface:.1f} cm² |",
-        f"| Envergure | {val_span:.1f} cm |",
-        f"| Allongement | {val_ar:.2f} |",
-        f"| Corde emplanture | {val_root_c:.1f} mm |",
-        f"| Corde saumon | {val_tip_c:.1f} mm |",
-        f"| Vrillage | {val_twist:.2f}° |",
-        f"| Charge alaire | {wing_loading:.2f} N/m² |",
-        f"| Re emplanture | {Re_root:.2e} |",
-        f"| Re saumon | {Re_tip:.2e} |",
+        f"| Airfoil | {root_naca_profile.upper()} |",
+        f"| Area | {val_surface:.1f} cm² |",
+        f"| Span | {val_span:.1f} cm |",
+        f"| Aspect ratio | {val_ar:.2f} |",
+        f"| Root chord | {val_root_c:.1f} mm |",
+        f"| Tip chord | {val_tip_c:.1f} mm |",
+        f"| Twist | {val_twist:.2f}° |",
+        f"| Wing loading | {wing_loading:.2f} N/m² |",
+        f"| Re root | {Re_root:.2e} |",
+        f"| Re tip | {Re_tip:.2e} |",
         f"",
         f"---",
         f"",
     ]
 
-    # Géométrie stab
+    # Stabilizer geometry
     lines += [
-        f"## 2. Géométrie Stabilisateur",
+        f"## 2. Stabilizer Geometry",
         f"",
-        f"| Paramètre | Valeur |",
+        f"| Parameter | Value |",
         f"|:---|:---|",
-        f"| Surface | {val_s_surface:.1f} cm² |",
-        f"| Envergure | {val_s_span:.1f} cm |",
-        f"| Allongement | {val_s_ar:.2f} |",
-        f"| Corde emplanture | {val_s_root_c:.1f} mm |",
-        f"| Calage | {val_s_twist:.2f}° |",
-        f"| Longueur fuselage | {val_fuselage_length:.1f} cm |",
+        f"| Area | {val_s_surface:.1f} cm² |",
+        f"| Span | {val_s_span:.1f} cm |",
+        f"| Aspect ratio | {val_s_ar:.2f} |",
+        f"| Root chord | {val_s_root_c:.1f} mm |",
+        f"| Incidence angle | {val_s_twist:.2f}° |",
+        f"| Fuselage length | {val_fuselage_length:.1f} cm |",
         f"",
         f"---",
         f"",
     ]
 
-    # Performances
+    # Performance
     lines += [
-        f"## 3. Performances",
+        f"## 3. Performance",
         f"",
-        f"| Paramètre | Valeur |",
+        f"| Parameter | Value |",
         f"|:---|:---|",
-        f"| Finesse (L/D) | {val_finesse:.2f} |",
-        f"| Traînée | {val_trainee:.2f} N |",
-        f"| Incidence croisière | {val_alpha:.2f}° |",
-        f"| CL croisière | {CL_cruise:.3f} |",
-        f"| CD croisière | {CD_cruise:.4f} |",
-        f"| CL stabilisateur | {CL_stab:.3f} |",
+        f"| L/D ratio | {val_finesse:.2f} |",
+        f"| Drag | {val_trainee:.2f} N |",
+        f"| Cruise incidence | {val_alpha:.2f}° |",
+        f"| CL cruise | {CL_cruise:.3f} |",
+        f"| CD cruise | {CD_cruise:.4f} |",
+        f"| CL stabilizer | {CL_stab:.3f} |",
         f"",
         f"---",
         f"",
     ]
 
-    # Stabilité
+    # Stability
     lines += [
-        f"## 4. Stabilité & Équilibre",
+        f"## 4. Stability & Trim",
         f"",
-        f"| Paramètre | Valeur |",
+        f"| Parameter | Value |",
         f"|:---|:---|",
-        f"| Marge statique | {val_sm:.2f} % |",
-        f"| Position CG | {val_cg:.1f}% ({val_xcg:.1f} cm du BA) |",
-        f"| Force stabilisateur | {val_force_stab:.2f} N |",
-        f"| Moment résiduel | {val_moment:.4f} N·m |",
-        f"| Volume de queue | {val_vh:.4f} |",
+        f"| Static margin | {val_sm:.2f} % |",
+        f"| CG position | {val_cg:.1f}% ({val_xcg:.1f} cm from LE) |",
+        f"| Stabilizer force | {val_force_stab:.2f} N |",
+        f"| Residual moment | {val_moment:.4f} N·m |",
+        f"| Tail volume | {val_vh:.4f} |",
         f"",
         f"---",
         f"",
     ]
 
-    # Avertissements automatiques
+    # Automatic warnings
     warnings_list = []
     if val_sm > 70:
-        warnings_list.append(f"⚠️ Marge statique élevée ({val_sm:.1f}%) - risque de manœuvrabilité réduite.")
+        warnings_list.append(f"⚠️ High static margin ({val_sm:.1f}%) - risk of reduced maneuverability.")
     if val_sm < 5:
-        warnings_list.append(f"⚠️ Marge statique très faible ({val_sm:.1f}%) - risque d'instabilité.")
+        warnings_list.append(f"⚠️ Very low static margin ({val_sm:.1f}%) - risk of instability.")
     if abs(val_moment) > 5:
-        warnings_list.append(f"⚠️ Moment résiduel important ({val_moment:.2f} N·m) - vérifier l'équilibre.")
+        warnings_list.append(f"⚠️ Significant residual moment ({val_moment:.2f} N·m) - check trim.")
     if CL_cruise < 0.08:
-        warnings_list.append(f"⚠️ CL de croisière très bas ({CL_cruise:.3f}) - surface peut-être sous-utilisée.")
+        warnings_list.append(f"⚠️ Very low cruise CL ({CL_cruise:.3f}) - area possibly underused.")
 
     if warnings_list:
-        lines += [f"## ⚠️ Avertissements", f""]
+        lines += [f"## ⚠️ Warnings", f""]
         for w in warnings_list:
             lines.append(f"- {w}")
         lines.append(f"")
@@ -316,33 +316,33 @@ def export_fiche_technique(
     with open(filepath, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
-    print(f"✓ Fiche technique exportée : {filepath}")
+    print(f"✓ Technical sheet exported: {filepath}")
     return filepath
 
 
 # =========================================================================================
-# ====================   OPTIMISATION PARAMÉTRIQUE - FONCTION OBJECTIF   ==================
+# ====================   PARAMETRIC OPTIMIZATION - OBJECTIVE FUNCTION   ===================
 # =========================================================================================
 
 def evaluate_design(root_naca_profile: str, tip_naca_profile: str,
                     reflex_angle_deg: float, perform_export: bool = False) -> dict:
     """
-    Lance l'optimisation IPOPT pour une combinaison de profils NACA donnée.
-    Retourne un dict avec les métriques clés, ou {"success": False} si infaisable.
+    Runs IPOPT optimization for a given combination of NACA airfoils.
+    Returns a dict with the key metrics, or {"success": False} if infeasible.
     """
-    # Reset de l'environnement à chaque appel
+    # Reset the environment at each call
     opti       = asb.Opti()
     atmosphere = Atmosphere()
 
-    # ===================== VARIABLES D'OPTIMISATION =====================
+    # ===================== OPTIMIZATION VARIABLES =====================
 
-    # Aile
+    # Wing
     span       = opti.variable(init_guess=wing_span_init,   lower_bound=wing_span_bounds[0],   upper_bound=wing_span_bounds[1])
     root_chord = opti.variable(init_guess=root_chord_init,  lower_bound=root_chord_bounds[0],  upper_bound=root_chord_bounds[1])
     tip_chord  = opti.variable(init_guess=tip_chord_init,   lower_bound=tip_chord_bounds[0],   upper_bound=tip_chord_bounds[1])
     twist      = opti.variable(init_guess=twist_init,       lower_bound=twist_bounds[0],       upper_bound=twist_bounds[1])
 
-    # Stabilisateur
+    # Stabilizer
     s_span       = opti.variable(init_guess=stab_span_init,       lower_bound=stab_span_bounds[0],       upper_bound=stab_span_bounds[1])
     s_root_chord = opti.variable(init_guess=stab_root_chord_init, lower_bound=stab_root_chord_bounds[0], upper_bound=stab_root_chord_bounds[1])
     s_tip_chord  = opti.variable(init_guess=stab_tip_chord_init,  lower_bound=stab_tip_chord_bounds[0],  upper_bound=stab_tip_chord_bounds[1])
@@ -352,41 +352,41 @@ def evaluate_design(root_naca_profile: str, tip_naca_profile: str,
     fuselage_length = opti.variable(init_guess=fuselage_init,       lower_bound=fuselage_bounds[0],  upper_bound=fuselage_bounds[1])
     cg_ratio        = opti.variable(init_guess=cfg["cg_ratio_init"], lower_bound=cfg["cg_range"][0], upper_bound=cfg["cg_range"][1])
 
-    # ===================== CONSTRUCTION GÉOMÉTRIQUE =====================
+    # ===================== GEOMETRIC CONSTRUCTION =====================
 
-    # Profils
+    # Airfoils
     af_root = apply_reflex_to_naca(root_naca_profile, reflex_angle_deg) if reflex_angle_deg > 0 else get_airfoil(root_naca_profile)
     af_tip  = apply_reflex_to_naca(tip_naca_profile,  reflex_angle_deg) if reflex_angle_deg > 0 else get_airfoil(tip_naca_profile)
 
-    # --- Aile principale (morphing) ---
+    # --- Main wing (morphing) ---
     wing_xsecs = []
     for i in range(N_sections_wing):
         r        = i / (N_sections_wing - 1)
         af_blend = interpolate_airfoil(af_root, af_tip, r)
 
-        # Distribution de corde elliptique/linéaire
+        # Elliptic/linear chord distribution
         elliptic_dist  = np.sqrt(1 - r ** 2)
         linear_dist    = 1 - r
         combined_factor = 0.6 * elliptic_dist + 0.4 * linear_dist
         c_dist         = tip_chord + (root_chord - tip_chord) * combined_factor
 
-        # Position Z (anhedral + winglet)
+        # Z position (anhedral + winglet)
         z_base = - (r * (span / 2)) * np.tan(np.radians(wing_anhedral_deg))
-        # Le winglet s'active seulement au bout
+        # The winglet only activates near the tip
         if r > 0.8:
             r_winglet = (r - 0.8) / 0.2
-            z_winglet = 0.05 * (r_winglet ** 2) * (span / 2) 
+            z_winglet = 0.05 * (r_winglet ** 2) * (span / 2)
         else:
             z_winglet = 0.0
         z_pos = z_base + z_winglet
 
-        # Position X (sweep + pointe arrière)
+        # X position (sweep + rear tip)
         x_mid_sweep = ((r ** 2) * (span / 2)) * np.tan(np.radians(sweep_deg))
-        # petite pointe dynamique parabolique en bout d'aile
+        # small parabolic dynamic tip at wing extremity
         x_mid_tip   = 0.03 * (r ** 3) * (span / 2)
         x_mid_total = x_mid_sweep + x_mid_tip
-        
-        # corde centrée sur cette ligne
+
+        # chord centered on this line
         x_le = x_mid_total - 0.5 * c_dist
 
         wing_xsecs.append(asb.WingXSec(
@@ -415,7 +415,7 @@ def evaluate_design(root_naca_profile: str, tip_naca_profile: str,
 
     fuselage_obj = asb.Fuselage(name="Fuselage", xsecs=fuse_xsecs)
 
-    # --- Mât ---
+    # --- Mast ---
     mast_xsecs = []
     for i in range(N_sections_mast):
         r       = i / (N_sections_mast - 1)
@@ -429,40 +429,40 @@ def evaluate_design(root_naca_profile: str, tip_naca_profile: str,
 
     mast_obj = asb.Wing(name="Mast_Immersed", symmetric=False, xsecs=mast_xsecs)
 
-    # Traînée et moment du mât
+    # Mast drag and moment
     c_mast_mean     = (mast_chord_bot + chord_at_water_line) / 2
     S_mast_immersed = c_mast_mean * profondeur_immersion
     q               = 0.5 * atmosphere.density() * cfg["v_cruise"] ** 2
     D_mast          = q * S_mast_immersed * 0.011
     M_mast          = -D_mast * (profondeur_immersion / 2)
 
-    # --- Stabilisateur ---
+    # --- Stabilizer ---
     stab_xsecs = []
     for i in range(N_sections_stab):
         r             = i / (N_sections_stab - 1)
         s_elliptic     = np.sqrt(1 - r ** 2)
         s_c_dist       = s_tip_chord + (s_root_chord - s_tip_chord) * s_elliptic
 
-        # Géométrie (Dièdre et flèche)
+        # Geometry (dihedral and sweep)
         z_dihedral = (r * (s_span / 2)) * np.tan(np.radians(stab_dihedral_deg))
-        
-        # Flèche calée sur le milieu de la corde du stab
+
+        # Sweep referenced to the mid-chord of the stab
         x_s_mid_sweep = ((r ** 2) * (s_span / 2)) * np.tan(np.radians(s_sweep_deg))
         x_stab_base   = x_fuselage_start + fuselage_length - 0.10
-        
-        # Bord d'attaque du stab recalculé
+
+        # Recomputed stab leading edge
         x_s_le = (x_stab_base + x_s_mid_sweep) - 0.5 * s_c_dist
 
         stab_xsecs.append(asb.WingXSec(
             xyz_le=[x_s_le, r * (s_span / 2), z_dihedral],
-            chord=s_c_dist, 
+            chord=s_c_dist,
             twist=s_twist,
             airfoil=asb.Airfoil("naca0012"),
         ))
 
     stab = asb.Wing(symmetric=True, name="Stab", xsecs=stab_xsecs)
 
-    # --- Avion complet ---
+    # --- Complete airplane ---
     airplane = asb.Airplane(
         wings=[wing, stab],
         fuselages=[fuselage_obj],
@@ -470,9 +470,9 @@ def evaluate_design(root_naca_profile: str, tip_naca_profile: str,
         s_ref=wing.area(), c_ref=mean_chord, b_ref=wing.span(),
     )
 
-    # ===================== ANALYSE AÉRODYNAMIQUE =====================
+    # ===================== AERODYNAMIC ANALYSIS =====================
 
-    alpha=opti.variable(init_guess=alpha_init, lower_bound=alpha_bounds[0], upper_bound=alpha_bounds[1])    
+    alpha=opti.variable(init_guess=alpha_init, lower_bound=alpha_bounds[0], upper_bound=alpha_bounds[1])
 
     op_point = asb.OperatingPoint(
         velocity=cfg["v_cruise"],
@@ -482,10 +482,10 @@ def evaluate_design(root_naca_profile: str, tip_naca_profile: str,
 
     aero = asb.AeroBuildup(airplane, op_point).run()
 
-    # Calcul de la marge statique 
+    # Static margin computation
     op_2         = asb.OperatingPoint(
-        velocity=cfg["v_cruise"], 
-        alpha=alpha*1.01,  # Légère augmentation de l'angle d'attaque pour le calcul de la dérivée
+        velocity=cfg["v_cruise"],
+        alpha=alpha*1.01,  # Slight increase in angle of attack for the derivative computation
         atmosphere=atmosphere)
     aero_2       = asb.AeroBuildup(airplane, op_2).run()
     dCL          = aero_2["CL"] - aero["CL"]
@@ -496,59 +496,59 @@ def evaluate_design(root_naca_profile: str, tip_naca_profile: str,
     D  = aero["D"]
     M  = aero["Cm"] * (0.5 * atmosphere.density() * cfg["v_cruise"] ** 2 * wing.area() * mean_chord)
 
-    # Moment du gréement (bras calculé dynamiquement depuis le CG optimisé)
+    # Rig moment (arm computed dynamically from the optimized CG)
     bras_greement = X_cg - x_mast
     M_greement    = rig_mass * 9.81 * (-bras_greement)
 
     D_total = D + D_mast
-    M_total = M + M_mast + M_greement  # CORRIGÉ : M_mast réintégré
+    M_total = M + M_mast + M_greement
 
     lever_arm  = fuselage_length
     v_h        = (stab.area() * lever_arm) / (wing.area() * mean_chord)
     q_takeoff  = 0.5 * atmosphere.density() * cfg["v_takeoff"] ** 2
 
-    # ===================== CONTRAINTES =====================
+    # ===================== CONSTRAINTS =====================
 
     opti.subject_to([
-        # Portance = Poids
+        # Lift = Weight
         L >= weight,
 
-        # Équilibre de tangage
+        # Pitch trim
         M_total / (weight * mean_chord) >= -0.01,
-        M_total / (weight * mean_chord) <=  0.01, # Permet 1% marge de moment résiduel pour éviter les designs trop contraints
+        M_total / (weight * mean_chord) <=  0.01, # Allow 1% residual moment margin to avoid over-constrained designs
 
-        # Surfaces (cibles scénario)
+        # Areas (scenario targets)
         wing.area() >= cfg["area_target_range"][0],
         wing.area() <= cfg["area_target_range"][1],
         stab.area() >= cfg["stab_area_range"][0],
         stab.area() <= cfg["stab_area_range"][1],
 
-        # Géométrie (saumon < root)
+        # Geometry (tip < root)
         tip_chord   <= root_chord   * 0.2,
         s_tip_chord <= s_root_chord * 0.3,
 
-        # Charge stabilisateur
+        # Stabilizer load
         aero["wing_aero_components"][1].L <= cfg["stab_load_range"][1],
         aero["wing_aero_components"][1].L >= cfg["stab_load_range"][0],
 
-        # Décollage
+        # Takeoff
         aero["wing_aero_components"][0].L <= q_takeoff * wing.area() * CL_max_takeoff_approx,
 
-        # Marge statique
+        # Static margin
         static_margin >= cfg["sm_range"][0],
         static_margin <= cfg["sm_range"][1],
     ])
 
-    # Objectif : minimiser la traînée totale
+    # Objective: minimize total drag
     opti.minimize(D_total)
 
-    # ===================== RÉSOLUTION =====================
+    # ===================== SOLVING =====================
 
     try:
         sol = opti.solve(verbose=False)
 
-        # --- Calcul de la Marge Statique (post-traitement) ---
-        static_margin = -9.99  # Code d'erreur par défaut
+        # --- Static margin computation (post-processing) ---
+        static_margin = -9.99  # Default error code
         try:
             airplane_sol = sol(airplane)
             alpha_val    = sol(op_point.alpha)
@@ -560,15 +560,15 @@ def evaluate_design(root_naca_profile: str, tip_naca_profile: str,
             dCm          = aero_2["Cm"] - aero_1["Cm"]
             static_margin = -(dCm / (dCL + 1e-9))
         except Exception as e_sm:
-            print(f"  Warning SM : {e_sm}")
+            print(f"  Warning SM: {e_sm}")
 
-        # --- Export & Bilan détaillé ---
+        # --- Export & detailed report ---
         if perform_export:
             try:
                 rho = atmosphere.density()
                 mu  = atmosphere.dynamic_viscosity()
 
-                # Extraction des valeurs
+                # Value extraction
                 val_surface         = float(sol(wing.area())) * 10000
                 val_span            = float(sol(span)) * 100
                 val_ar              = float(sol(wing.aspect_ratio()))
@@ -597,13 +597,13 @@ def evaluate_design(root_naca_profile: str, tip_naca_profile: str,
                 CD_cruise           = float(sol(D)) / (0.5 * rho * cfg["v_cruise"] ** 2 * float(sol(wing.area())))
                 CL_stab             = val_force_stab / (0.5 * rho * cfg["v_cruise"] ** 2 * float(sol(stab.area())))
 
-                # Dossier de sortie
+                # Output folder
                 now_str      = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
                 out_dir      = os.path.join("outputs", f"{CASE}_{root_naca_profile}_{now_str}")
                 airfoils_dir = os.path.join(out_dir, "airfoils")
                 os.makedirs(airfoils_dir, exist_ok=True)
 
-                # Export fiche technique Markdown
+                # Markdown technical sheet export
                 export_fiche_technique(
                     out_dir=out_dir, root_naca_profile=root_naca_profile,
                     val_surface=val_surface, val_span=val_span, val_ar=val_ar,
@@ -619,7 +619,7 @@ def evaluate_design(root_naca_profile: str, tip_naca_profile: str,
                     val_force_stab=val_force_stab, val_moment=val_moment, val_vh=val_vh,
                 )
 
-                # Export profils .dat
+                # Export .dat airfoils
                 def export_profile_dat(af_obj, filename, name_internal):
                     af_obj  = af_obj.repanel(n_points_per_side=50)
                     coords  = af_obj.coordinates
@@ -651,7 +651,7 @@ def evaluate_design(root_naca_profile: str, tip_naca_profile: str,
                     af.name = af_name
                     export_profile_dat(af, f"{af_name}.dat", af_name)
 
-                # Export XML XFLR5
+                # XFLR5 XML export
                 airplane_export = asb.Airplane(
                     wings=[
                         asb.Wing(symmetric=True, name="mainwing",  xsecs=wing_optim.xsecs),
@@ -663,12 +663,12 @@ def evaluate_design(root_naca_profile: str, tip_naca_profile: str,
                 )
                 xml_path = os.path.join(out_dir, f"{CASE}_{root_naca_profile}_{now_str}_plane.xml")
                 airplane_export.export_XFLR5_xml(xml_path)
-                print(f"✓ XML XFLR5 exporté   : {xml_path}")
-                print(f"✓ Profils .dat générés : {airfoils_dir}")
+                print(f"✓ XFLR5 XML exported: {xml_path}")
+                print(f"✓ .dat airfoils generated: {airfoils_dir}")
 
             except Exception as e_print:
                 import traceback
-                print(f"\nErreur export : {e_print}")
+                print(f"\nExport error: {e_print}")
                 traceback.print_exc()
 
         return {
@@ -686,11 +686,11 @@ def evaluate_design(root_naca_profile: str, tip_naca_profile: str,
 
 
 # =========================================================================================
-# =======================   BOUCLE D'ÉVALUATION PRINCIPALE   ==============================
+# =======================   MAIN EVALUATION LOOP   ========================================
 # =========================================================================================
 
 print("\n" + "=" * 60)
-print(f"     OPTIMISATION PARAMÉTRIQUE — CAS : {CASE.upper()}")
+print(f"     PARAMETRIC OPTIMIZATION — CASE: {CASE.upper()}")
 print("=" * 60 + "\n")
 
 best_run    = None
@@ -703,32 +703,32 @@ for c in cambrures:
             root_name = f"naca{c}4{t_root:02d}"
             tip_name  = f"naca{c}4{t_tip:02d}"
 
-            print(f"Test : {root_name} → {tip_name} | reflex {reflex}° | ", end="", flush=True)
+            print(f"Test: {root_name} → {tip_name} | reflex {reflex}° | ", end="", flush=True)
 
             res = evaluate_design(root_name, tip_name, reflex, perform_export=False)
 
             if res["success"]:
-                print(f"Convergence : OK | Finesse : {res['finesse']:.2f} | Surf : {res['surface']:.0f} cm² | Stab : {res['stab_force']:.1f} N")
+                print(f"Convergence: OK | L/D: {res['finesse']:.2f} | Area: {res['surface']:.0f} cm² | Stab: {res['stab_force']:.1f} N")
                 if best_run is None or res["finesse"] > best_run["finesse"]:
                     best_run    = res
                     best_config = (root_name, tip_name, reflex)
             else:
-                print("Infaisable")
+                print("Infeasible")
 
 # =========================================================================================
-# ================================   RÉSULTAT FINAL   =====================================
+# ================================   FINAL RESULT   =======================================
 # =========================================================================================
 
 print("\n" + "=" * 60)
 if best_run:
     r_name, t_name, reflex = best_config
-    print(f"CONFIGURATION RETENUE :")
-    print(f"  Emplanture   : {r_name.upper()}")
-    print(f"  Saumon       : {t_name.upper()}")
-    print(f"  Angle Reflex : {reflex}°")
+    print(f"SELECTED CONFIGURATION:")
+    print(f"  Root         : {r_name.upper()}")
+    print(f"  Tip          : {t_name.upper()}")
+    print(f"  Reflex angle : {reflex}°")
     print("-" * 60)
-    print("\n[Génération des fichiers finaux...]\n")
+    print("\n[Generating final files...]\n")
     evaluate_design(r_name, t_name, reflex, perform_export=True)
 else:
-    print("Aucun profil n'a satisfait toutes les contraintes.")
+    print("No airfoil satisfied all constraints.")
 print("=" * 60)
