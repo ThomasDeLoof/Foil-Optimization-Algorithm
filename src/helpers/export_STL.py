@@ -6,7 +6,7 @@
 # and writes 4 binary STL files into `<run_dir>/stl/`.
 #
 # Usage:
-#   python3 src/export_STL.py outputs/file_name
+#   python3 src/helpers/export_STL.py outputs/file_name
 # =================================================================================
 
 import sys
