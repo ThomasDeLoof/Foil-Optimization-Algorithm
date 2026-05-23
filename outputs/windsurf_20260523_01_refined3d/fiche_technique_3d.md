@@ -1,6 +1,6 @@
 # Technical Sheet — WINDSURF  |  3D REFINEMENT (LiftingLine)
 
-*Generated on 2026-05-23 18:58:31*
+*Generated on 2026-05-23 23:39:13*
 
 This foil was refined in 3D from the V2 AeroBuildup solution.
 The L, D, CL, CD, L/D values below come from **LiftingLine**

@@ -1,6 +1,6 @@
 # Technical Sheet — WINGFOIL  |  3D REFINEMENT (LiftingLine)
 
-*Generated on 2026-05-23 18:44:27*
+*Generated on 2026-05-23 23:25:27*
 
 This foil was refined in 3D from the V2 AeroBuildup solution.
 The L, D, CL, CD, L/D values below come from **LiftingLine**

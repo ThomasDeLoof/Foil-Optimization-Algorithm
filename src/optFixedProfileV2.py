@@ -961,7 +961,7 @@ def full_report(x: np.ndarray) -> None:
                F_stab, v_h, M_total, L_to, CL_to, rho, mu, X_cg, AR_w, AR_s,
                sigma_vm, sigma_vm_static, pd, omega_n, f_lo, f_hi)
 
-    # ── XFLR5 + .dat airfoils export — V1 method (the only one that works in practice).
+    # ── XFLR5 + .dat airfoils export — 
     # We RENAME each section with a unique name (wing_sec_0, ...) and write the
     # corresponding .dat into airfoils/. When loading the XML, XFLR5 retrieves
     # each section by name from the subfolder.

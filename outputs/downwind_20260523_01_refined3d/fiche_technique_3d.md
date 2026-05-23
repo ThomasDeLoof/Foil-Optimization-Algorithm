@@ -1,6 +1,6 @@
 # Technical Sheet — DOWNWIND  |  3D REFINEMENT (LiftingLine)
 
-*Generated on 2026-05-23 19:12:01*
+*Generated on 2026-05-23 23:52:44*
 
 This foil was refined in 3D from the V2 AeroBuildup solution.
 The L, D, CL, CD, L/D values below come from **LiftingLine**
