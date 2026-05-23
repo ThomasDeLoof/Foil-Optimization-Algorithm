@@ -25,6 +25,13 @@ from scipy.optimize import minimize
 
 import optFixedProfileV2 as V2          # build_airplane, constants, etc.
 
+# Feature flag — if True, the 3D refinement uses LiftingLine at takeoff (instead
+# of AeroBuildup) to enforce L_to ≥ WEIGHT and CL_to ≤ margin × CL_max with the
+# real 3D circulation (captures the wing↔stab downwash error that makes AB
+# overestimate stab download and therefore underestimate the wing α_to needed).
+# Cost: ~3 extra LL calls per refine evaluation (bracket + trim) → +~30 s.
+USE_LL_TAKEOFF = os.environ.get("LL_TAKEOFF", "0") == "1"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. Auto-load of the latest x_best.npy
@@ -41,16 +48,34 @@ def _find_latest_x_best():
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. 3D evaluator (LiftingLine)
 # ─────────────────────────────────────────────────────────────────────────────
-def aero_3d(airplane: asb.Airplane, alpha: float) -> dict:
-    """Evaluates L/D/Cm with LiftingLine (captures 3D downwash & induced drag)."""
+def aero_3d(airplane: asb.Airplane, alpha: float, velocity: float = None) -> dict:
+    """Evaluates L/D/Cm with LiftingLine (captures 3D downwash & induced drag).
+    Default velocity = v_cruise; pass v_takeoff to evaluate the takeoff point."""
+    if velocity is None:
+        velocity = V2.cfg["v_cruise"]
     plane_ll = asb.Airplane(
         wings=airplane.wings, xyz_ref=airplane.xyz_ref,
         s_ref=airplane.s_ref, c_ref=airplane.c_ref, b_ref=airplane.b_ref,
     )
-    op = asb.OperatingPoint(velocity=V2.cfg["v_cruise"], alpha=alpha,
+    op = asb.OperatingPoint(velocity=velocity, alpha=alpha,
                             atmosphere=V2.atmosphere)
     a = asb.LiftingLine(plane_ll, op).run()
     return {k: float(a[k]) for k in ("L", "D", "Cm", "CL", "CD")}
+
+
+def trim_alpha_3d_at(airplane, velocity: float, target_L: float,
+                     alpha_lo: float = 2.0, alpha_hi: float = 8.0) -> tuple:
+    """LiftingLine trim at arbitrary velocity (e.g. v_takeoff).
+    Bracket [alpha_lo, alpha_hi] should encompass the trim point."""
+    aero_lo = aero_3d(airplane, alpha_lo, velocity=velocity)
+    aero_hi = aero_3d(airplane, alpha_hi, velocity=velocity)
+    L_lo, L_hi = aero_lo["L"], aero_hi["L"]
+    if abs(L_hi - L_lo) < 1.0:
+        return float(alpha_lo), aero_lo
+    alpha_trim = alpha_lo + (target_L - L_lo) / (L_hi - L_lo) * (alpha_hi - alpha_lo)
+    alpha_trim = max(-3.0, min(15.0, alpha_trim))
+    aero_trim = aero_3d(airplane, alpha_trim, velocity=velocity)
+    return float(alpha_trim), aero_trim
 
 
 def compare_2d_3d(x: np.ndarray, label: str = "") -> dict:
@@ -120,10 +145,16 @@ def _objective_3d(x_trim: np.ndarray, x_template: np.ndarray) -> float:
         return 1e6
 
     try:
-        op_to = asb.OperatingPoint(velocity=V2.cfg["v_takeoff"],
-                                   alpha=p["alpha_to"], atmosphere=V2.atmosphere)
-        ab_to = asb.AeroBuildup(airplane, op_to).run()
-        L_to, D_to, CL_to = float(ab_to["L"]), float(ab_to["D"]), float(ab_to["CL"])
+        if USE_LL_TAKEOFF:
+            # LiftingLine evaluation at the trial α_to (no bracket needed — we
+            # respect the optimizer's choice of α_to and just compute true 3D L).
+            ll_to = aero_3d(airplane, p["alpha_to"], velocity=V2.cfg["v_takeoff"])
+            L_to, D_to, CL_to = ll_to["L"], ll_to["D"], ll_to["CL"]
+        else:
+            op_to = asb.OperatingPoint(velocity=V2.cfg["v_takeoff"],
+                                       alpha=p["alpha_to"], atmosphere=V2.atmosphere)
+            ab_to = asb.AeroBuildup(airplane, op_to).run()
+            L_to, D_to, CL_to = float(ab_to["L"]), float(ab_to["D"]), float(ab_to["CL"])
     except Exception:
         return 1e6
 
@@ -132,7 +163,8 @@ def _objective_3d(x_trim: np.ndarray, x_template: np.ndarray) -> float:
     # L_cruise is already ≈ WEIGHT by construction (trim), small residual penalty
     pen += V2.K1 * V2.soft_penalty(L,    V2.WEIGHT, V2.WEIGHT,      ref=V2.WEIGHT)
     pen += V2.K1 * V2.soft_penalty(L_to, V2.WEIGHT, np.inf,         ref=V2.WEIGHT)
-    pen += V2.K1 * V2.soft_penalty(CL_to, -np.inf, V2.CL_MAX_TO,    ref=V2.CL_MAX_TO)
+    cl_to_target = V2.cfg["takeoff_cl_margin"] * V2.CL_MAX_TO
+    pen += V2.K1 * V2.soft_penalty(CL_to, -np.inf, cl_to_target,    ref=V2.CL_MAX_TO)
 
     X_cg = p["cg_ratio"] * mc
     M_total = (Cm * V2.q_cruise * wing.area() * mc
@@ -209,6 +241,24 @@ def export_refined(x: np.ndarray) -> str:
                                atmosphere=V2.atmosphere)
     ab_to = asb.AeroBuildup(airplane, op_to).run()
     L_to, D_to, CL_to = float(ab_to["L"]), float(ab_to["D"]), float(ab_to["CL"])
+
+    # Real-world takeoff validity via LiftingLine: at the optimizer's chosen
+    # α_to, what does the 3D circulation say? And what α_to would actually be
+    # needed to lift the system weight under LL?
+    try:
+        ll_to_at_alpha = aero_3d(airplane, p["alpha_to"],
+                                 velocity=V2.cfg["v_takeoff"])
+        L_to_ll, CL_to_ll = ll_to_at_alpha["L"], ll_to_at_alpha["CL"]
+        alpha_to_real, ll_to_at_trim = trim_alpha_3d_at(
+            airplane, velocity=V2.cfg["v_takeoff"], target_L=V2.WEIGHT)
+        CL_to_real = ll_to_at_trim["CL"]
+        cl_to_max = V2.cfg["takeoff_cl_margin"] * V2.CL_MAX_TO
+        ll_to_ok = CL_to_real <= V2.CL_MAX_TO
+        ll_margin_ok = CL_to_real <= cl_to_max
+    except Exception:
+        L_to_ll = CL_to_ll = alpha_to_real = CL_to_real = float("nan")
+        cl_to_max = float("nan")
+        ll_to_ok = ll_margin_ok = False
 
     # --- Balance / structure metrics ---
     X_cg    = p["cg_ratio"] * mc
@@ -308,6 +358,21 @@ def export_refined(x: np.ndarray) -> str:
         f"| **L/D ratio** | **{L/D_total:.2f}** | — |",
         f"| L vs weight gap | {(L-V2.WEIGHT)/V2.WEIGHT*100:+.1f}% | {(L_to-V2.WEIGHT)/V2.WEIGHT*100:+.1f}% |",
         "", "---", "",
+        "## 2b. Takeoff validity check (LiftingLine vs AeroBuildup)",
+        "", "AB and LL evaluated at the same α_to as the optimizer chose; "
+        "`α_to required` is the LL trim solving L=WEIGHT at v_takeoff.",
+        "",
+        "| Quantity | AB (used by optimizer) | LL (real 3D circulation) |",
+        "|:---|:---|:---|",
+        f"| α_to | {p['alpha_to']:.2f}° | {alpha_to_real:.2f}° (needed for L=W) |",
+        f"| L at α_to (N) | {L_to:.1f} | {L_to_ll:.1f} |",
+        f"| CL at α_to | {CL_to:.3f} | {CL_to_ll:.3f} |",
+        f"| CL at L=W trim | — | {CL_to_real:.3f} |",
+        f"| Stall margin (CL_to_real / CL_max = {V2.CL_MAX_TO}) | — | "
+        f"{CL_to_real/V2.CL_MAX_TO*100:.0f}% |",
+        f"| Status | — | {'✓ within ' + f'{cl_to_max:.2f} target' if ll_margin_ok else ('⚠ above margin, below stall' if ll_to_ok else '❌ STALL (CL>CL_max)')} |",
+        f"| LL takeoff used during refine | {'yes' if USE_LL_TAKEOFF else 'no (AB)'} | — |",
+        "", "---", "",
         "## 3. Handling, Stability & Structure", "",
         "| Parameter | Value | Target |", "|:---|:---|:---|",
         f"| **ω_n** (pitch frequency) | **{omega_str}** | freeride [{f_lo:.1f}–{f_hi:.1f}] Hz |",
@@ -316,7 +381,7 @@ def export_refined(x: np.ndarray) -> str:
         f"| NP-CG gap (absolute) | {pd['SM_abs']*1000:.1f} mm | — |",
         f"| SM/c̄ (legacy, chord-normalized) | {sm_chord_str} | — |",
         f"| Residual moment | {M_total:.3f} N·m | < {V2.M_TOL_TRIM:.1f} N·m (pilot trim) |",
-        f"| Tail volume V_h | {v_h:.3f} | [{V2.cfg['vh_range'][0]:.2f}–{V2.cfg['vh_range'][1]:.2f}] |",
+        f"| Tail volume V_h | {v_h:.3f} | — |",
         f"| Von Mises root (peak ×{V2.LOAD_PEAK_FACTOR:.1f}g) | {sigma_vm/1e6:.1f} MPa | < {V2.SIGMA_ADMISSIBLE/1e6:.0f} MPa (fatigue) |",
         f"| Von Mises root (static 1g) | {sigma_vm_static/1e6:.1f} MPa | < {V2.SIGMA_ULTIMATE/1e6:.0f} MPa (rupture) |",
         "",
@@ -368,7 +433,7 @@ def main() -> None:
     p0, pr = V2.decode(x), V2.decode(x_refined)
     print(f"  Final cost: {J_refined:.2f}   ({n_iter} Nelder-Mead iterations, planform unchanged)")
     print(f"  Trim angle evolutions:")
-    for k in ("cg_ratio", "wing_setting_angle", "twist", "s_twist", "alpha_to", "alpha_cruise"):
+    for k in ("cg_ratio", "wing_setting_angle", "twist", "s_twist", "alpha_to"):
         delta = pr[k] - p0[k]
         flag = " *" if abs(delta) > 0.05 else ""
         print(f"    {k:<22} : {p0[k]:>7.3f}  →  {pr[k]:>7.3f}   (Δ={delta:+.3f}){flag}")

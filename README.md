@@ -114,7 +114,7 @@ I previously kept a multistart mode (`N_starts: 3`) that re-ran DE from independ
 
 `full_report()` writes an `*_plane.xml` next to the fiche technique for each output. The plan for the validation is to load it in XFLR5, run a stack of independent checks against our internal physics and report agreement / disagreement per scenario.
 
-**Hydrodynamic checks (VLM2, 30 chordwise × 50 spanwise panels per surface, seawater density)**
+**Hydrodynamic checks (VLM2 vs LLT models)**
 
 * $\alpha_{sweep}$ from -3° to 10° at $v_{cruise} \rightarrow CL(\alpha), CD(\alpha), L/D$ curves. Compare $CL$ at the predicted cruise $\alpha$ to AeroBuildup (DE phase) and LiftingLine (3D refinement); we expect AeroBuildup to under-predict $CL$ by 5-10 % and LiftingLine to land within 2-3 % of XFLR5.
 * Spanwise circulation and induced-drag distribution at cruise $\alpha$ — confirm the elliptic planform actually approaches elliptic loading, sanity-check the wing/stab downwash interaction that AeroBuildup misses.
@@ -128,6 +128,15 @@ I previously kept a multistart mode (`N_starts: 3`) that re-ran DE from independ
 * Neutral point location relative to $CG$ — confirms the sign and magnitude of $SM$ independently of the downwash calibration baked into AeroBuildup.
 
 Outcome: one validation table per scenario in this README, listing predicted vs XFLR5 values with the percentage gap, so failure modes of the cheap solvers used inside DE are made explicit.
+
+#### Finding #1 — XFLR5 VLM2 reports stall before takeoff (and the fix)
+
+The first round of XFLR5 VLM2 validation on the optimized foils showed local **tip stall just below takeoff α**. The optimizer thought the foil was 15-25 % away from the stall margin; XFLR5 disagreed. Two compounding causes:
+
+1. **Tip overload from taper + sweep.** The wing chord ramps from root to `0.25 × root` at the tip, so for the same total lift the local section CL at the tip overshoots the spanwise-averaged CL the optimizer was watching. The 2D xfoil CL_max (≈ 1.3-1.4 for a NACA 2412 at Re ~ 1 × 10⁶) is the *sectional* limit — the *effective 3D wing* hits it earlier.
+2. **Lift-slope underestimate at takeoff in AeroBuildup.** AB is additive: it sums wing and stab contributions but misses the wing→stab downwash. At takeoff α the wing CL is high → real downwash on the stab is large → the stab actually produces *less* lift than AB predicts. The pitch trim therefore requires the wing to carry *more* of the load → real α_to is higher than the AB-derived value.
+
+The change committed: `cl_max_takeoff: 1.3 → 1.05` in `parameters.yaml`. The LiftingLine takeoff diagnostic added in `optFixedProfileRefine3d.py` (the "2b. Takeoff validity check" block in `fiche_technique_3d.md`) is kept on by default because it costs ~3 s and surfaces the gap between AB and LL takeoff in every refined output — useful for future sanity checks without changing the optimization.
 
 ---
 

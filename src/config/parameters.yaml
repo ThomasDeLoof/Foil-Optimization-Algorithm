@@ -76,7 +76,12 @@ wing:
   n_sections: 10
 
   # Physical takeoff limit
-  cl_max_takeoff: 1.3               # Conservative for a cambered NACA (real ~1.4 max)
+  cl_max_takeoff: 1.05              # 3D-effective CL_max — not the 2D xfoil polar
+                                    # value (1.3-1.4 for NACA 2412). The gap absorbs
+                                    # the tip-stall overshoot from taper + sweep and
+                                    # the lift-slope error from AeroBuildup missing
+                                    # the wing→stab downwash. Cross-checked against
+                                    # XFLR5 VLM2 on pumping (see README "Validation").
 
   # Construction: carbon shell + polystyrene core (core strength neglected)
   skin_thickness: 0.0015            # 1.5 mm — typical carbon skin on freeride wing
