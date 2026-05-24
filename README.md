@@ -78,14 +78,10 @@ Getting an accurate $Cm_{\alpha}$ turned out to be the harder problem. I tried t
    
 The second approach was chosen, because the calculation additional costs were negligeable, and the precision on stability was crucial to the optimisation.
 
-### Dynamic reserve on the stabiliser
+### Stab control authority 
 
 One thing that's invisible in a steady-state optimiser but critical in real foils: the stab needs to be bigger than the strict minimum required at cruise, because real water isn't steady. Gusts, swell, rider stance shifts, pumping cycles — all of these momentarily demand much more pitch authority than the cruise design point.
-Without explicit "robustness" constraints, the optimiser will converge to a stab that satisfies cruise trim with just a few Newtons of download. That's mathematically optimal — and physically inoperable. The first time a 50 kt gust hits, the rider has no pitch authority left because the stab is already at near-zero loading.
-
-The fix lives in `scenarios.yaml` via the `stab_load_range` per discipline. The lower-magnitude bound (closer to zero) is now set such that the stab must produce a meaningful download at the design point — typically enough to keep ~50 % of its CL budget free as reserve. This approach also forces the optimisation to not look at tandem solutions (both wing and stab lifting) that are only used for race speed-oriented foils, but are not desirable for a freeride approach.
-
-### Stab control authority 
+Without explicit "robustness" constraints, the optimiser will converge to a stab that satisfies cruise trim with just a few Newtons of download. That's physically inoperable. The first time a 50 kt gust hits, the rider has no pitch authority left because the stab is already at near-zero loading. A fortiori, the hydrodynamic model does not take into account the modification of the wake direction by the main wing, which makes the stabilizer see a straighter flow and is loaded even less than what is calculated. So I added a ceiling boundary for the stabilizer lift. This approach also forces the optimisation to not look at tandem solutions (both wing and stab lifting) that are only used for race speed-oriented foils, but are not desirable for a freeride approach.
 
 I added a second constraint that depends on stab size directly: the lift derivative $dF_{stab}/d\alpha = CL_{\alpha,stab} \times q \times S_{stab}$ must be at least a discipline-specific target. Physically, this is the force change per degree of incidence variation — what the pilot feels when a wave tilts the foil.
 The key point: this is not redundant with $\omega_n$, which measures the *combined* stiffness/inertia of the system (wing + stab) — $dF_{stab}/d\alpha$ measures only the stab's contribution, and scales linearly with area at fixed cruise $q$. So requiring a minimum $dF/d\alpha$ directly constrains a minimum stab area, scaled appropriately to the dynamic pressure of each discipline.
