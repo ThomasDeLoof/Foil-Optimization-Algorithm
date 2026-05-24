@@ -110,35 +110,28 @@ The script was confirmed deterministic under a fixed seed. With the default conf
 
 I previously kept a multistart mode (`N_starts: 3`) that re-ran DE from independent Sobol initialisations and kept the best. The run-to-run spread on `D_cruise` and `ω_n` was consistently under **1 %**, so for ten extra minutes of compute the multistart bought essentially nothing on top of single-start mode — that was the trigger for dropping it as a default.
 
-### XFLR5 Validation
+### XFLR5 Validation (LLT vs VLM2)
 
 `full_report()` writes an `*_plane.xml` next to the fiche technique for each output. The plan for the validation is to load it in XFLR5, run a stack of independent checks against our internal physics and report agreement / disagreement per scenario.
 
-**Hydrodynamic checks (VLM2 vs LLT models)**
+While the Python optimization loop relies on the **Lifting Line Theory (LLT)** (via `asb.LiftingLine` or `asb.AeroBuildup`) for fast, multi-start design space exploration, final configurations are audited using **Vortex Lattice Method (VLM2)** multi-panel simulations within XFLR5. 
 
-* $\alpha_{sweep}$ from -3° to 10° at $v_{cruise} \rightarrow CL(\alpha), CD(\alpha), L/D$ curves. Compare $CL$ at the predicted cruise $\alpha$ to AeroBuildup (DE phase) and LiftingLine (3D refinement); we expect AeroBuildup to under-predict $CL$ by 5-10 % and LiftingLine to land within 2-3 % of XFLR5.
-* Spanwise circulation and induced-drag distribution at cruise $\alpha$ — confirm the elliptic planform actually approaches elliptic loading, sanity-check the wing/stab downwash interaction that AeroBuildup misses.
-* $Cp$ distribution at cruise α on the wing and stab root sections — verify no localised cavitation pocket below $\sigma_v$ that the AeroBuildup-based $Cp_{min}$ check might have glossed over.
+This multi-fidelity workflow captures critical 3D geometric interactions, fuselage aerodynamic boundaries, and downwash effects that simpler line models approximate.
 
-**Stability checks (XFLR5 stability analyser with `I_yy = m_total · r_gyr²`)**
+**Model Discrepancies & Physics Interpretation**
 
-* Trim $\alpha$ found by XFLR5 should match `alpha_cruise` from the fiche technique within a few tenths of a degree.
-* Short-period eigenvalue → ω_n in Hz. This is the key cross-check, because our ω_n comes from a finite-difference $Cm_{\alpha}$ on AeroBuildup at $\alpha$ = 0° and 3°. XFLR5's eigenvalue includes the full inertia matrix and pitch damping, so agreement within ~15 % validates the dimensional ω_n we use as a freeride pilotability target.
-* The derivatives of aerodynamic coefficients at trim $\alpha$ → compare with our 2D values; tail downwash ($d\epsilon/d\alpha$) is included by XFLR5, so this isolates how much error our AeroBuildup-based $Cm_{\alpha}$ carries.
-* Neutral point location relative to $CG$ — confirms the sign and magnitude of $SM$ independently of the downwash calibration baked into AeroBuildup.
+When confronting the Python LLT technical sheets with the XFLR5 VLM2 sessions (`.xfl`), several physical phenomena explain the numerical shifts:
 
-Outcome: one validation table per scenario in this README, listing predicted vs XFLR5 values with the percentage gap, so failure modes of the cheap solvers used inside DE are made explicit.
+* **Downwash & Stabilizer Interaction:** High-lift profiles (such as the `naca4412` used in Pumping) generate massive flow deflection. XFLR5 computes this downwash matrix panel-by-panel, showing that the stabilizer operates in a severely deflected wake. This can dramatically alter the required trim angle compared to Python's linearized assumptions.
+* **The "Virtual Stall" Risk:** In configurations with aggressive optimization outputs (e.g., the Downwind foil with a $-4.39^\circ$ geometric twist), LLT smooths out the aerodynamic load. VLM2 scans the full surface grid and reveals that at high angles of attack ($\alpha_{to}$ during takeoff), the wing root experiences early localized stall while the negative-incidence tips are barely loading, severely penalizing early flight transition.
+* **The finesse shift:** The vortices modelised by VLM2 have a strong decreasing effect on the $C_L$ on the last 5 to 10% of the wing chord. This leads to a finesse typically 20% less than calculated with the optimist model LLT.
 
-#### Finding #1 — XFLR5 VLM2 reports stall before takeoff (and the fix)
+**Modification: Engineering Design Margins**
 
-The first round of XFLR5 VLM2 validation on the optimized foils showed local **tip stall just below takeoff α**. The optimizer thought the foil was 15-25 % away from the stall margin; XFLR5 disagreed. Two compounding causes:
+When XFLR5 revealed that a foil stalls prematurely or misses its takeoff lift target due to 3D losses, we must apply engineering design margins in configuration files (`parameters.yaml` or `scenarios.yaml`), by different ways :
 
-1. **Tip overload from taper + sweep.** The wing chord ramps from root to `0.25 × root` at the tip, so for the same total lift the local section CL at the tip overshoots the spanwise-averaged CL the optimizer was watching. The 2D xfoil CL_max (≈ 1.3-1.4 for a NACA 2412 at Re ~ 1 × 10⁶) is the *sectional* limit — the *effective 3D wing* hits it earlier.
-2. **Lift-slope underestimate at takeoff in AeroBuildup.** AB is additive: it sums wing and stab contributions but misses the wing→stab downwash. At takeoff α the wing CL is high → real downwash on the stab is large → the stab actually produces *less* lift than AB predicts. The pitch trim therefore requires the wing to carry *more* of the load → real α_to is higher than the AB-derived value.
-
-The change committed: `cl_max_takeoff: 1.3 → 1.05` in `parameters.yaml`. The LiftingLine takeoff diagnostic added in `optFixedProfileRefine3d.py` (the "2b. Takeoff validity check" block in `fiche_technique_3d.md`) is kept on by default because it costs ~3 s and surfaces the gap between AB and LL takeoff in every refined output — useful for future sanity checks without changing the optimization.
-
----
+* **Artificially lower $V_{takeoff}$** by $10\%$ to force the optimizer to generate a slightly larger surface area or a more generous root chord.
+* **Cap the maximum allowable $C_{L,max}$ at takeoff** (e.g., reduce `cl_max_takeoff`) to force the algorithm into a safer, more robust aerodynamic regime.
 
 ## What I knowingly ignored
 
