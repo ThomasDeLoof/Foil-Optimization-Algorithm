@@ -124,7 +124,7 @@ When confronting the Python LLT technical sheets with the XFLR5 VLM2 sessions (`
 
 * **Downwash & Stabilizer Interaction:** High-lift profiles (such as the `naca4412` used in Pumping) generate massive flow deflection. XFLR5 computes this downwash matrix panel-by-panel, showing that the stabilizer operates in a severely deflected wake. This can dramatically alter the required trim angle compared to Python's linearized assumptions.
 * **The "Virtual Stall" Risk:** In configurations with aggressive optimization outputs (e.g., the Downwind foil with a $-4.39^\circ$ geometric twist), LLT smooths out the aerodynamic load. VLM2 scans the full surface grid and reveals that at high angles of attack ($\alpha_{to}$ during takeoff), the wing root experiences early localized stall while the negative-incidence tips are barely loading, severely penalizing early flight transition.
-* **The finesse shift:** The vortices modelised by VLM2 have a strong decreasing effect on the $C_L$ on the last 5 to 10% of the wing chord. This leads to a finesse typically 20% less than calculated with the optimist model LLT.
+* **The finesse shift:** The vortices modelised by VLM2 have a strong decreasing effect on the $C_L$ on the last 5 to 10% of the wing chord. Moreover, the fuselage-wings interactions are considered contrary to the model used in the 3D refinement. This leads to a finesse typically 20% less than calculated with the optimist model LLT.
 
 **Modification: Engineering Design Margins**
 
