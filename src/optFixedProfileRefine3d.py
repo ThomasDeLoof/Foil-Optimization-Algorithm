@@ -23,7 +23,7 @@ import numpy as np
 import aerosandbox as asb
 from scipy.optimize import minimize
 
-import optFixedProfileV2 as V2          # build_airplane, constants, etc.
+import optAlgoV3 as V2          # build_airplane, constants, etc.
 
 # Feature flag — if True, the 3D refinement uses LiftingLine at takeoff (instead
 # of AeroBuildup) to enforce L_to ≥ WEIGHT and CL_to ≤ margin × CL_max with the

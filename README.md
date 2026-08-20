@@ -25,7 +25,7 @@ Each scenario has currently uploaded its best output so far, along with its tech
 
 ## V1 — parametric NACA with IPOPT
 
-The first script (`optFixedProfileV1.py`) ran a structured sweep over NACA camber, thickness and sweep, with IPOPT handling the trim. It produced coherent wingfoil-class geometries but had a few persistent issues:
+The first script (`optAlgoV1.py`) ran a structured sweep over NACA camber, thickness and sweep, with IPOPT handling the trim. It produced coherent wingfoil-class geometries but had a few persistent issues:
 
 * The solver was boxed into tight parameter bounds. Because IPOPT is local and gradient-based, it hit these bounds constantly and either got stuck or refused to converge without manual tuning of the initial guess.
 * When I loosened the bounds to help convergence, the optimizer drifted into "laboratory" designs — aspect ratios above 15, stabilizers producing positive lift, walls thinner than 1 mm — because nothing in the cost function captured structural strength or manufacturing limits.
@@ -37,15 +37,15 @@ V1 was the right starting point to learn the problem, but its workflow scaled po
 
 ## V2 — Kulfan section + structural model
 
-The follow-up (`optMultidisciplinary.py`) moves to a Kulfan / CST parametrization of the airfoil itself rather than locking it to NACA. A handful of early-stage geometric filters reject self-intersecting profiles or trailing edges below 1 mm before the fluid solver sees them. A bending-moment + section-modulus check at the root forces realistic carbon thicknesses, and a static margin approximated estimation to get hands over the stability. The global solver is Differential Evolution, which copes much better than IPOPT with the messier landscape introduced by free airfoils (especially if hard constraints are used).
+The follow-up (`optAlgoV2.py`) moves to a Kulfan / CST parametrization of the airfoil itself rather than locking it to NACA. A handful of early-stage geometric filters reject self-intersecting profiles or trailing edges below 1 mm before the fluid solver sees them. A bending-moment + section-modulus check at the root forces realistic carbon thicknesses, and a static margin approximated estimation to get hands over the stability. The global solver is Differential Evolution, which copes much better than IPOPT with the messier landscape introduced by free airfoils (especially if hard constraints are used).
 
 V2 works, but giving the airfoil that much freedom makes the search costly and noisy. It became clear that the section itself is not where the biggest wins are at this design fidelity — the planform and the trim are.
 
 ---
 
-## Current state
+## Current state (V3)
 
-`optFixedProfileV2` keeps the physics from the previous script and goes the other way on the airfoil question. The section is fixed per scenario (a NACA or others chosen for each discipline), and the optimizer is free to choose the planform — span & root chord for both wings — along with the trim variables: CG position, root incidence, washout, stab incidence, alpha at cruise, alpha at takeoff, fuselage length. Ten decision variables in total (CG is just informational).
+`optAlgoV3` keeps the physics from the previous script and goes the other way on the airfoil question. The section is fixed per scenario (a NACA or others chosen for each discipline), and the optimizer is free to choose the planform — span & root chord for both wings — along with the trim variables: CG position, root incidence, washout, stab incidence, alpha at cruise, alpha at takeoff, fuselage length. Ten decision variables in total (CG is just informational).
 
 ### How the geometry is built
 

@@ -73,7 +73,7 @@ def main() -> None:
 
     # Import V2 — triggers de_da calibration (cache → instant if already done)
     print("Importing V2…")
-    import optFixedProfileV2 as V2
+    import optAlgoV3 as V2
 
     # Override resolutions for the final mesh
     V2.N_WING = args.n_wing
