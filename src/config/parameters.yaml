@@ -12,13 +12,27 @@ case: "pumping"
 
 
 # -----------------------------------------------------------------------------
+# RIDER LEVEL — beginner → race. This is the "how much the rider works vs how
+# efficient/lively the foil is" axis (the industry's beginner/advanced/race split).
+# It scales the trim weight-shift budget (a bigger budget lets the optimizer shrink
+# the stab → less drag but more rider effort), the tip forgiveness, and the desired
+# tip-stall margin. See optAlgoV4.py.
+# -----------------------------------------------------------------------------
+level: "intermediate"       # beginner | intermediate | advanced | race
+levels:
+  beginner:     { trim_budget_m: 0.025, stance_full_m: 0.10, tip_camber_min: 0.75, tip_stall_margin_deg: 6.0 }
+  intermediate: { trim_budget_m: 0.040, stance_full_m: 0.08, tip_camber_min: 0.50, tip_stall_margin_deg: 4.0 }
+  advanced:     { trim_budget_m: 0.055, stance_full_m: 0.08, tip_camber_min: 0.35, tip_stall_margin_deg: 3.0 }
+  race:         { trim_budget_m: 0.070, stance_full_m: 0.08, tip_camber_min: 0.20, tip_stall_margin_deg: 2.0 }
+
+
+# -----------------------------------------------------------------------------
 # PILOT + BOARD — system carried by the foil
 # -----------------------------------------------------------------------------
-# The handling target (ω_n) is defined per discipline in scenarios.yaml
-# — all calibrated for a performant freeride foil.
-# -----------------------------------------------------------------------------
 pilot:
-  mass_kg: 75
+  mass_kg: 75               # NOMINAL rider mass → used for the cruise trim.
+  mass_design_max_kg: 90    # HEAVIEST design rider → take-off lift and structure are
+                            # sized for this so the foil works across a weight range.
   gyration_radius_m: 0.30   # Gyration radius of the pilot+board+rig system
                             # (standing on the board → ~30 cm). Used for I_yy.
   trim_moment_tolerance_N_m: 25.0
@@ -94,6 +108,84 @@ wing:
                                     #   2-3: typical maneuvering hydrofoil on chop
                                     #   4-5: rough conditions, vigorous pumping, shock
 
+  # --- V4 additions --------------------------------------------------------
+  youngs_modulus_gpa: 70            # Effective bending modulus of the carbon shell
+                                    # (quasi-iso layup ~70 GPa; UD would be ~130).
+                                    # Used for the V4 tip-deflection estimate.
+  tip_deflection_max_ratio: 0.15    # Max tolerated static tip deflection / semi-span
+                                    # (industry freeride carbon foil stays well under this).
+
+
+# -----------------------------------------------------------------------------
+# HYDRO — free-surface & cavitation environment (V4 only; V3 ignores it)
+# -----------------------------------------------------------------------------
+hydro:
+  free_surface: true                # Enable free-surface lift knockdown + wave drag.
+  wave_drag_coeff: 0.5              # Calibration multiplier on the linearised
+                                    # submerged-foil wave drag (O(1) prefactor folded
+                                    # in — calibrate against towing-tank/CFD).
+  lift_knockdown: true              # Apply the image-vortex lift reduction near surface.
+  gravity: 9.81
+
+
+# -----------------------------------------------------------------------------
+# STABILITY — V4 uses the metrics the industry actually sizes to, NOT a target
+# pitch frequency. The former ω_n band was a proxy; it is now only REPORTED.
+# -----------------------------------------------------------------------------
+stability:
+  # Tail volume coefficient  V_h = S_stab · l_t / (S_wing · c̄) is the primary
+  # static-stability sizing metric. There is NO universal target: each discipline's
+  # reference kit runs its own V_h (pumping ~0.58, wingfoil ~0.70, downwind ~1.26,
+  # windsurf ~2.6 — long thin foils carry generous tails). So V4 auto-calibrates
+  # the V_h band to ±(tolerance) around the CURRENT scenario's REFERENCE geometry.
+  tail_volume_ref_tolerance: 0.35   # V_h ∈ [(1-tol), (1+tol)] × reference V_h
+
+  # Static margin: a foil has a huge tail arm vs its small chord, so SM/c̄ > 100%
+  # is NORMAL (foils are very pitch-stable). We only enforce a positive floor for
+  # static stability; the value is REPORTED, not pushed to an aircraft-like band.
+  static_margin_floor: 0.03
+
+  # PILOT AS AN ACTIVE CONTROLLER (foils are flown, not flown-by-trim). The rider
+  # trims by shifting weight fore/aft; CG is therefore NOT optimized. Instead we
+  # bound the physical effort + keep a control reserve:
+  #   shift_to_trim = M_residual / (pilot_weight)   [m of fore/aft weight shift]
+  stance_trim_max_m: 0.04   # max weight shift to hold trim (comfortable) — hard limit
+  stance_full_m:     0.08   # rider's full comfortable fore/aft travel; the reserve
+                            # (full - |shift_to_trim|) is the control authority, reported.
+
+
+# -----------------------------------------------------------------------------
+# MANUFACTURING — "hand-built in an amateur workshop" realism (V4 only)
+# Loosen these once you have a proper autoclave/prepreg process.
+# -----------------------------------------------------------------------------
+manufacturing:
+  carbon_allowable_mpa: 100         # Allowable stress for a HAND wet-layup laminate
+                                    # (vs ~160 MPa aerospace-grade). Drives the σ_VM
+                                    # constraint → thicker/stronger, easier to build.
+  min_tc_root: 0.11                 # Min root thickness/chord: room for a spar + core
+                                    # and tolerant of hand-layup quality.
+  min_tc_tip:  0.085                # Min tip t/c: a hand-moldable, non-fragile tip.
+  max_tc_root: 0.16                 # Max root t/c (beyond this, drag/volume penalty).
+  min_tip_chord_m: 0.045            # Min absolute tip chord. Raised from 30→45 mm so the
+                                    # tip Reynolds stays high enough (~5e5) to avoid the
+                                    # low-Re laminar separation that makes a small tip
+                                    # stall abruptly — and it is easier to mold/robust.
+
+
+# -----------------------------------------------------------------------------
+# SAFETY / HANDLING — keep the wing forgiving across all conditions (V4 only)
+# -----------------------------------------------------------------------------
+safety:
+  tip_camber_min_ratio: 0.50        # Min tip camber (× reference). A near-symmetric thin
+                                    # tip stalls abruptly (ventilation/spin-out risk in
+                                    # turns & pumping); keeping some camber raises tip
+                                    # CL_max and softens the stall.
+  max_washin_deg: 0.0               # Forbid tip wash-IN: the tip must never sit at a
+                                    # higher incidence than the root, so the root always
+                                    # stalls first (gentle, controllable).
+  tip_stall_margin_deg: 4.0         # Reported: desired AoA margin between the tip's
+                                    # take-off operating angle and its CL_max angle.
+
 
 # -----------------------------------------------------------------------------
 # FUSELAGE (common parameters; length bounds & init in scenarios.yaml)
@@ -105,19 +197,44 @@ fuselage:
 
 
 # -----------------------------------------------------------------------------
-# MAST (fixed parameters, the mast is not optimized)
+# MAST — length/immersion are USE-CASE choices (kept fixed); the CHORD is now a
+# design variable, traded off between drag (thin) and bending strength/stiffness
+# (a beam model, below, prevents the optimizer from making a wafer that snaps).
 # -----------------------------------------------------------------------------
 mast:
-  length: 0.82                      # 82 cm total (freeride standard)
+  length: 0.82                      # 82 cm total (freeride standard) — use-case choice
   immersion_depth: 0.45
-  chord_top: 0.135                  # Chord at top (waterline)
-  chord_bot: 0.110                  # Chord at bottom (thinner for drag)
-  profile: "naca0012"               # Thin profile (depending on machining feasibility and strength)
+  chord_top: 0.135                  # (legacy warm-start; the V4 optimizes a single chord)
+  chord_bot: 0.110
+  profile: "naca0012"               # Thin symmetric profile
+  chord_bounds: [0.075, 0.150]      # V4 mast-chord optimization range (m)
+  chord_init:   0.130
+  thickness_ratio: 0.12             # Mast t/c (drives both drag and — cubed — the weak
+                                    # lateral bending stiffness; chord⁴ overall).
+  youngs_modulus_gpa: 110           # Mast UD-carbon bending modulus (stiffer than the
+                                    # wing shell's 70 GPa quasi-iso layup).
+  turn_load_g: 1.0                  # Lateral maneuver load (× total weight): a hard but
+                                    # normal carve (a ≈ v²/R ~ 1 g). The sizing case for
+                                    # the mast weak (side-bending) axis.
+  allowable_mpa: 300                # Mast UD-carbon bending allowable (hand layup + safety;
+                                    # far above the wing shell's 100 MPa).
+  deflection_max_ratio: 0.10        # Max lateral tip deflection / mast length under carve.
 
   x_position: 0.25                  # 25 cm behind wing LE (standard position)
-  cd: 0.007                          # Cd consistent with thin profile at Re ~1.5e6
+  cd: 0.007                          # (legacy fallback; V4 computes cd from NeuralFoil)
 
   n_sections: 4
+
+
+# -----------------------------------------------------------------------------
+# OPTIMIZATION — multi-point speed design (V4). The objective is a weighted sum of
+# trimmed drag at several speeds (× v_cruise) instead of cruise+takeoff only, so the
+# foil behaves across the range, not just at one point.
+# -----------------------------------------------------------------------------
+optimization:
+  speed_points:  [1.0, 1.25]        # × v_cruise — extra trimmed high-speed point(s)
+  speed_weights: [1.0, 0.4]         # objective weights for each speed point
+  takeoff_weight: 0.3               # weight of the take-off drag term
 
 # -----------------------------------------------------------------------------
 # STABILIZER
@@ -135,6 +252,10 @@ stab:
   span_bounds:       [0.25, 0.50]   # Freeride stab: typically 25-50 cm
   root_chord_bounds: [0.04, 0.12]   # 4-12 cm root
   tip_chord_ratio:   0.4           # tip = ratio × root
+  camber_bounds:     [-0.8, 0.1]    # V4: stab section camber (× wing-camber basis).
+                                    # The stab runs at negative CL (download); a slightly
+                                    # NEGATIVE-cambered (reflex) section carries that
+                                    # download with less drag than a symmetric NACA0012.
 
   twist_bounds: [-6.0, 0.0]
   twist_init: -2.5
