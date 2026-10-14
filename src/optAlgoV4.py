@@ -38,12 +38,13 @@ from config.water_atmosphere import Water as Atmosphere
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. GLOBAL CONFIGURATION  (same files / keys as V3)
 # ─────────────────────────────────────────────────────────────────────────────
-with open(ROOT / "config/parameters.yaml") as f:
+with open(ROOT / "config/parameters.yaml", encoding="utf-8") as f:
     phy = yaml.safe_load(f)
-with open(ROOT / "config/scenarios.yaml") as f:
+with open(ROOT / "config/scenarios.yaml", encoding="utf-8") as f:
     SCENARIOS = yaml.safe_load(f)
 
-CASE = phy["case"]
+# FOIL_CASE / FOIL_LEVEL / FOIL_AIRFOIL env vars override the YAML (batch runs).
+CASE = os.environ.get("FOIL_CASE", phy["case"])
 if CASE not in SCENARIOS:
     raise ValueError(f"Case '{CASE}' not found. Options: {list(SCENARIOS.keys())}")
 cfg = SCENARIOS[CASE]
@@ -118,10 +119,11 @@ FATIGUE_RATIO    = phy["wing"]["fatigue_allowable_ratio"]
 LOAD_PEAK_FACTOR = phy["wing"]["load_peak_factor"]
 MFG = phy.get("manufacturing", {})
 SIGMA_ADMISSIBLE = MFG.get("carbon_allowable_mpa", FATIGUE_RATIO * SIGMA_ULTIMATE / 1e6) * 1e6
-P_ATM   = atmosphere.pressure()
+P_ATM   = atmosphere.pressure()          # static pressure AT wing depth (atm + rho*g*h)
 P_VAPOR = atmosphere.vapor_pressure()
-SIGMA_CAV = (P_ATM + RHO * GRAV * profondeur_imm - P_VAPOR) \
-          / (0.5 * RHO * cfg["v_cruise"] ** 2)
+_SPEED_MAX_FRAC = max(phy.get("optimization", {}).get("speed_points", [1.0]))
+V_CAV   = cfg["v_cruise"] * _SPEED_MAX_FRAC  # cavitation sized at the fastest design point
+SIGMA_CAV = (P_ATM - P_VAPOR) / (0.5 * RHO * V_CAV ** 2)
 
 # ── Stability targets — industry metrics (tail volume), NOT ω_n ──
 # V_h band is AUTO-CALIBRATED to the scenario reference geometry (see REF_VH in
@@ -136,7 +138,7 @@ PILOT_MASS      = float(phy["pilot"]["mass_kg"])          # weight-shift authori
 PILOT_WEIGHT    = PILOT_MASS * GRAV
 
 # ── Rider LEVEL (beginner→race): scales trim effort, tip forgiveness, stall margin ──
-LEVEL       = phy.get("level", "intermediate")
+LEVEL       = os.environ.get("FOIL_LEVEL", cfg.get("level", phy.get("level", "intermediate")))
 _lvl        = phy.get("levels", {}).get(LEVEL, {})
 STANCE_TRIM_MAX = float(_lvl.get("trim_budget_m", STAB_CFG.get("stance_trim_max_m", 0.04)))
 STANCE_FULL     = float(_lvl.get("stance_full_m",  STAB_CFG.get("stance_full_m", 0.08)))
@@ -167,7 +169,7 @@ DALPHA = 1.0          # deg — finite-difference step for Cm_alpha (short perio
 #   upper = camber_scale * mean + thickness_scale * half
 #   lower = camber_scale * mean - thickness_scale * half
 # where mean=(u+l)/2 (camber modes), half=(u-l)/2 (thickness modes).
-WING_AIRFOIL_NAME = cfg["wing_airfoil"]
+WING_AIRFOIL_NAME = os.environ.get("FOIL_AIRFOIL", cfg["wing_airfoil"])
 STAB_AIRFOIL_NAME = phy["stab"]["airfoil"]
 
 def _load_airfoil(name, fallback):
@@ -281,6 +283,8 @@ BOUNDS = {
     "alpha_to":           tuple(phy["alpha"]["bounds"]),
 }
 ALPHA_CRUISE_BOUNDS = (-2.0, 10.0)
+# Optional planform-area band (m²) — used to replicate a known commercial wing.
+WING_AREA_BOUNDS = tuple(cfg["wing_area_bounds"]) if "wing_area_bounds" in cfg else None
 
 # Warm start on the scenario's industrial reference geometry.
 WING_SPAN       = cfg.get("wing_span_init",       phy["wing"]["span_init"])
@@ -326,7 +330,8 @@ DOWNWASH_DEG = float(np.degrees(2.0 * _CL_nom / (np.pi * max(_AR_nom, 3.0))))
 def _elliptic_area(span, root, tip):
     r = np.linspace(0, 1, 25)
     c = tip + (root - tip) * np.sqrt(np.clip(1 - r ** 2, 0, 1))
-    return 2.0 * float(np.trapz(c, r * span / 2))
+    _trapz = getattr(np, "trapezoid", None) or np.trapz   # numpy 2 renamed trapz
+    return 2.0 * float(_trapz(c, r * span / 2))
 
 _Sw_ref   = _elliptic_area(WING_SPAN, WING_ROOT_CHORD, INIT["taper"] * WING_ROOT_CHORD)
 _cbar_ref = _Sw_ref / WING_SPAN
@@ -418,7 +423,7 @@ def build_airplane(p):
     for i in range(N_MAST):
         r = i / (N_MAST - 1)
         mast_xsecs.append(asb.WingXSec(
-            xyz_le=[x_mast, 0, -r * profondeur_imm],
+            xyz_le=[x_mast, 0, r * profondeur_imm],
             chord=mast_c, twist=0, airfoil=MAST_AIRFOIL))
     mast_obj = asb.Wing(name="Mast", symmetric=False, xsecs=mast_xsecs)
 
@@ -563,7 +568,9 @@ def compute_metrics(p, alpha_cruise, model_size="xsmall"):
     # --- Free-surface lift knockdown (affects trim & lift constraints) ---
     kL   = free_surface_lift_factor(mean_chord)
     L    = kL * ab_c["L"];   CL = ab_c["CL"];   D = ab_c["D"];   Cm = ab_c["Cm"]
-    L_to = kL * ab_to["L"];  CL_to = ab_to["CL"];  D_to = ab_to["D"]
+    L_to = kL * ab_to["L"];  CL_to = ab_to["CL"]
+    D_to = ab_to["D"] + mast_drag_structure(p.get("mast_chord", INIT["mast_chord"]),
+                                            cfg["v_takeoff"])[0]
 
     # --- Drag: aero + mast (real model) + free-surface wave drag ---
     D_wave  = wave_drag(CL, mean_chord, p["wing_span"], cfg["v_cruise"])
@@ -723,6 +730,9 @@ def _build_opti(model_size="xsmall"):
     ar_wing_max = cfg.get("wing_aspect_ratio_max", None)
     if ar_wing_max is not None:
         opti.subject_to(m["AR_wing"] <= ar_wing_max)
+    if WING_AREA_BOUNDS is not None:
+        opti.subject_to(m["S_wing"] >= WING_AREA_BOUNDS[0])
+        opti.subject_to(m["S_wing"] <= WING_AREA_BOUNDS[1])
     dFda_target = cfg.get("stab_control_authority_min_N_per_deg", 0.0)
     if dFda_target > 0:
         opti.subject_to(m["dFda_stab"] >= dFda_target)
@@ -783,10 +793,9 @@ def run_optimization(n_starts=6, model_size="xsmall"):
             sol = opti.solve(max_iter=200, behavior_on_failure="return_last", verbose=False)
             x   = {n: float(sol.value(v[n])) for n in VAR_NAMES}
             ac  = float(sol.value(alpha_cruise))
-            ok, viol, obj_num = _feasibility(x, ac)
+            ok, viol, _ = _feasibility(x, ac)
+            obj_num = float(sol.value(obj))           # the objective IPOPT minimised
             tag = C.ok("feasible") if ok else C.warn(f"viol {viol:.2f}")
-            better = (ok and (not best["feasible"] or obj_num < best["obj"])) or \
-                     (not best["feasible"] and not ok and obj_num < best["obj"])
             mark = ""
             if (ok and (not best["feasible"] or obj_num < best["obj"])) or \
                (not best["feasible"] and (best["x"] is None or viol < best.get("viol", np.inf))):
@@ -794,7 +803,7 @@ def run_optimization(n_starts=6, model_size="xsmall"):
                 mark = C.bold(C.ok("  ★ new best"))
             print(f"  start {k+1}/{n_starts}   obj = {obj_num:7.1f} N   {tag}{mark}")
         except Exception as e:
-            print(f"  start {k+1}/{n_starts}   {C.warn('solve failed')} ({type(e).__name__})")
+            print(f"  start {k+1}/{n_starts}   {C.warn('solve failed')} ({type(e).__name__}: {e})")
 
     if best["x"] is None:
         print(C.warn("  All starts failed — returning warm start."))
@@ -802,10 +811,26 @@ def run_optimization(n_starts=6, model_size="xsmall"):
     return best
 
 
+KNOT = 1.0 / 0.514444   # m/s → knots
+
+
+def _num(v):
+    """Scalar float from a float / 0-d / shape-(1,) array (numpy >= 2.5 safe)."""
+    return float(np.ravel(np.asarray(v, dtype=float))[0])
+
+
+def takeoff_speeds(m):
+    """Speed at which the take-off attitude (alpha_to) lifts the nominal and the
+    heaviest system weight. Lift ∝ V² at fixed attitude (Re effect neglected)."""
+    L_to = _num(m["L_to"])
+    v = cfg["v_takeoff"]
+    return v * np.sqrt(WEIGHT / L_to), v * np.sqrt(WEIGHT_MAX / L_to)
+
+
 def _feasibility(x, alpha_cruise):
     """Numeric re-evaluation of objective + max relative constraint violation."""
     m = compute_metrics(x, alpha_cruise, model_size="medium")
-    g = lambda k: float(np.array(m[k]))
+    g = lambda k: _num(m[k])
     viols = []
     viols.append(abs(g("L") - WEIGHT) / WEIGHT)
     viols.append(max(0.0, (WEIGHT_MAX - g("L_to")) / WEIGHT_MAX))
@@ -823,8 +848,26 @@ def _feasibility(x, alpha_cruise):
     viols.append(max(0.0, (_min_tip_chord - g("tip_chord")) / _min_tip_chord))
     viols.append(max(0.0, (g("mast_sigma") - MAST_ALLOW) / MAST_ALLOW))
     viols.append(max(0.0, (g("mast_defl") - MAST_DEFL_MAX) / MAST_DEFL_MAX))
+    sl_lo, sl_hi = cfg["stab_load_range"]
+    fs = g("F_stab")
+    viols.append(max(0.0, (sl_lo - fs) / abs(sl_lo), (fs - sl_hi) / abs(sl_lo)))
+    ar_lo, ar_hi = tuple(cfg.get("stab_aspect_ratio_range",
+                                 phy["stab"].get("aspect_ratio_range", [5.0, 12.0])))
+    ars = g("AR_stab")
+    viols.append(max(0.0, (ar_lo - ars) / ar_lo, (ars - ar_hi) / ar_hi))
+    if cfg.get("wing_aspect_ratio_max") is not None:
+        arw_max = cfg["wing_aspect_ratio_max"]
+        viols.append(max(0.0, (g("AR_wing") - arw_max) / arw_max))
+    dfda_t = cfg.get("stab_control_authority_min_N_per_deg", 0.0)
+    if dfda_t > 0:
+        viols.append(max(0.0, (dfda_t - g("dFda_stab")) / dfda_t))
+    viols.append(max(0.0, -1.0 - alpha_cruise))
+    if WING_AREA_BOUNDS is not None:
+        sw = g("S_wing")
+        viols.append(max(0.0, (WING_AREA_BOUNDS[0] - sw) / WING_AREA_BOUNDS[0],
+                         (sw - WING_AREA_BOUNDS[1]) / WING_AREA_BOUNDS[1]))
     viol = max(viols)
-    obj  = SPEED_WEIGHTS[0] * float(np.array(m["D_total"])) + TAKEOFF_WEIGHT * float(np.array(m["D_to"]))
+    obj  = SPEED_WEIGHTS[0] * _num(m["D_total"]) + TAKEOFF_WEIGHT * _num(m["D_to"])
     return (viol < 0.02), viol, obj
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -836,8 +879,8 @@ def verify_liftingline(x, alpha_cruise):
     m = compute_metrics(x, alpha_cruise, model_size="medium")
     airplane = m["airplane"]
     plane = asb.Airplane(wings=airplane.wings, xyz_ref=airplane.xyz_ref,
-                         s_ref=float(np.array(m["S_wing"])),
-                         c_ref=float(np.array(m["mean_chord"])), b_ref=x["wing_span"])
+                         s_ref=_num(m["S_wing"]),
+                         c_ref=_num(m["mean_chord"]), b_ref=x["wing_span"])
     def L_at(a):
         r = asb.LiftingLine(plane, asb.OperatingPoint(velocity=cfg["v_cruise"], alpha=a,
                                                       atmosphere=atmosphere)).run()
@@ -845,7 +888,7 @@ def verify_liftingline(x, alpha_cruise):
     try:
         a_lo, a_hi = 0.0, 5.0
         (L_lo, _), (L_hi, _) = L_at(a_lo), L_at(a_hi)
-        kL = float(np.array(m["kL"]))
+        kL = _num(m["kL"])
         if abs(L_hi - L_lo) < 1.0:
             a_tr = alpha_cruise
         else:
@@ -854,7 +897,7 @@ def verify_liftingline(x, alpha_cruise):
         L_ll, r = L_at(a_tr)
         D_ll = float(r["D"]) * 1.0
         return dict(alpha=a_tr, L=kL * L_ll,
-                    D=D_ll + float(np.array(m["D_mast"])) + float(np.array(m["D_wave"])),
+                    D=D_ll + _num(m["D_mast"]) + _num(m["D_wave"]),
                     CL=float(r["CL"]), ok=True)
     except Exception as e:
         return dict(ok=False, err=str(e))
@@ -868,8 +911,8 @@ def performance_envelope(x):
            in turns & pumping."""
     p = {n: x[n] for n in VAR_NAMES}
     airplane, geo = build_airplane(p)
-    mean_chord = float(np.array(geo["mean_chord"]))
-    kL = float(np.array(free_surface_lift_factor(mean_chord)))
+    mean_chord = _num(geo["mean_chord"])
+    kL = _num(free_surface_lift_factor(mean_chord))
     span = p["wing_span"]
 
     def _ab(V, a):
@@ -901,7 +944,7 @@ def performance_envelope(x):
     tip_aoa_to = x["alpha_to"] + x["wing_setting_angle"] + x["tip_washout"]
     tip = dict(clmax=clmax_tip, a_stall=a_stall, aoa_to=tip_aoa_to,
                margin=a_stall - tip_aoa_to, Re=Re_tip,
-               want=float(SAFETY.get("tip_stall_margin_deg", 4.0)))
+               want=TIP_STALL_MARGIN)
     return rows, tip
 
 
@@ -946,7 +989,7 @@ def _export_profile_dat(af_obj, airfoils_dir, filename, name_internal):
 def full_report(best):
     x, alpha_cruise = best["x"], best["alpha"]
     m = compute_metrics(x, alpha_cruise, model_size="medium")
-    g = lambda k: float(np.array(m[k]))
+    g = lambda k: _num(m[k])
 
     L, D_total = g("L"), g("D_total")
     ll = verify_liftingline(x, alpha_cruise)
@@ -955,7 +998,7 @@ def full_report(best):
     f_lo, f_hi = PILOT_FREQ_LO, PILOT_FREQ_HI
     sigma_static, _ = structure_root(x["wing_root_chord"], x["wing_span"],
                                      REF_TC * x["thick_root"], 1.0)
-    sigma_static = float(np.array(sigma_static))
+    sigma_static = _num(sigma_static)
     Re_root = RHO * cfg["v_cruise"] * x["wing_root_chord"] / MU
     tip_chord = x["taper"] * x["wing_root_chord"]
 
@@ -990,6 +1033,9 @@ def full_report(best):
     if ll.get("ok"):
         ll_str = f"LiftingLine check: L {ll['L']:.1f} N  D {ll['D']:.2f} N  L/D {ll['L']/ll['D']:.2f}  @ α {ll['alpha']:.2f}°"
         print(f"    {C.dim(ll_str)}")
+    vto_nom, vto_max = takeoff_speeds(m)
+    print(f"    Takeoff speed  {vto_nom:.2f} m/s = {C.bold(f'{vto_nom*KNOT:.1f} kn')} "
+          f"({WEIGHT/GRAV:.0f} kg)   {vto_max:.2f} m/s = {vto_max*KNOT:.1f} kn ({WEIGHT_MAX/GRAV:.0f} kg)")
     print(f"    L takeoff {g('L_to'):7.1f} N   CL_to {g('CL_to'):.3f} "
           f"{C.dim(f'≤ {cl_to_tgt:.3f}')}   Re_root {Re_root:.2e}")
 
@@ -1019,7 +1065,7 @@ def full_report(best):
     cav_r = C.ok("✓") if g("Cpmin") >= -SIGMA_CAV else C.warn("⚠")
     cav_t = C.ok("✓") if g("Cpmin_tip") >= -SIGMA_CAV else C.warn("⚠")
     print(f"    Tip deflection {g('tip_defl_ratio')*100:4.1f}% semi-span {C.dim(f'≤ {TIP_DEFL_MAX*100:.0f}%')} {td}")
-    print(f"    Cavitation σ={SIGMA_CAV:.2f} @ {cfg['v_cruise']} m/s   "
+    print(f"    Cavitation σ={SIGMA_CAV:.2f} @ {V_CAV:.1f} m/s   "
           f"Cpmin root {g('Cpmin'):+.2f} {cav_r}  tip {g('Cpmin_tip'):+.2f} {cav_t}")
 
     # ── All-conditions envelope: speed sweep + tip-stall margin ──
@@ -1045,7 +1091,7 @@ def full_report(best):
               f"{C.dim(want_s)} {tmark}   {C.dim(re_s)}")
 
     # ── Export ──
-    out_dir = next_output_dir()
+    out_dir = next_output_dir(suffix=f"v4_{WING_AIRFOIL_NAME}")
     os.makedirs(out_dir, exist_ok=True)
     airfoils_dir = os.path.join(out_dir, "airfoils")
     os.makedirs(airfoils_dir, exist_ok=True)
@@ -1112,7 +1158,7 @@ def full_report(best):
 
 
 def _export_md(out_dir, x, alpha_cruise, m, omega_n, sigma_static, ll, rows=None, tip=None):
-    g = lambda k: float(np.array(m[k]))
+    g = lambda k: _num(m[k])
     now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     tip_chord = x["taper"] * x["wing_root_chord"]
     ll_line = (f"| LiftingLine (3D check) | L {ll['L']:.1f} N · D {ll['D']:.2f} N · "
@@ -1154,6 +1200,7 @@ def _export_md(out_dir, x, alpha_cruise, m, omega_n, sigma_static, ll, rows=None
         ll_line,
         f"| L takeoff | {g('L_to'):.1f} N |",
         f"| CL takeoff | {g('CL_to'):.3f} (≤ {cfg['takeoff_cl_margin']*CL_MAX_TO:.3f}) |",
+        f"| Takeoff speed (nominal / heaviest) | {takeoff_speeds(m)[0]*KNOT:.1f} kn / {takeoff_speeds(m)[1]*KNOT:.1f} kn |",
         "", "---", "", "## 3. Stability & pilotability (foil-specific)", "",
         "The rider is an **active controller**: they trim by shifting weight fore/aft,",
         "so CG is not optimized. We bound the **weight-shift to hold trim** and keep a",
@@ -1180,7 +1227,7 @@ def _export_md(out_dir, x, alpha_cruise, m, omega_n, sigma_static, ll, rows=None
         f"| Tip t/c | {REF_TC*x['thick_tip']*100:.1f}% | ≥ {MFG.get('min_tc_tip',0.085)*100:.1f}% (buildable) |",
         f"| Mast bending σ (@ {MAST_TURN_G:.1f}g carve) | {g('mast_sigma')/1e6:.0f} MPa | < {MAST_ALLOW/1e6:.0f} MPa (UD) |",
         f"| Mast lateral deflection | {g('mast_defl')*100:.1f}% length | < {MAST_DEFL_MAX*100:.0f}% |",
-        f"| Cavitation number σ @ {cfg['v_cruise']} m/s | {SIGMA_CAV:.2f} | — |",
+        f"| Cavitation number σ @ {V_CAV:.1f} m/s | {SIGMA_CAV:.2f} | — |",
         f"| Cpmin root / tip (real) | {g('Cpmin'):.2f} / {g('Cpmin_tip'):.2f} | ≥ {-SIGMA_CAV:.2f} |",
         "",
     ]

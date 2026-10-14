@@ -1,0 +1,5 @@
+# Tested on Python 3.12 (Windows). numpy>=2.3 / scipy>=1.16 break AeroSandbox 4.2.
+aerosandbox==4.2.10
+numpy>=2.0,<2.3
+scipy>=1.11,<1.16
+pyyaml

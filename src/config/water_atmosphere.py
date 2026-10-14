@@ -6,7 +6,7 @@ import yaml
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-with open(_HERE / "parameters.yaml") as f:
+with open(_HERE / "parameters.yaml", encoding="utf-8") as f:
     phy = yaml.safe_load(f)
 
 depth = float(phy["mast"]["immersion_depth"])
@@ -48,7 +48,7 @@ class Water(asb.AeroSandboxObject):
         p0 = 101325.0
         rho_w = self.density()
         g    = 9.81
-        return p0 + rho_w * g * depth
+        return p0 + rho_w * g * self.depth
 
     def temperature(self):
         # Constant water temperature [K]
@@ -67,7 +67,7 @@ class Water(asb.AeroSandboxObject):
 
     def vapor_pressure(self) -> float:
         # Saturation vapor pressure of water via Antoine equation (temp in °C)
-        T_C = self.temperature() - 273.25
+        T_C = self.temperature() - 273.15
 
         # Antoine coefficients for water (pressure in mmHg)
         A = 8.07131

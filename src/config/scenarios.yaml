@@ -203,3 +203,47 @@ pumping:
   wing_aspect_ratio_max:  9.5
   stab_span:       0.385
   stab_root_chord: 0.060
+
+
+# -----------------------------------------------------------------------------
+# ZEEKO BULLET 750 — replica of a commercial slalom wing (profile unpublished)
+# Official specs (zeeko-watersports.com): span 74 cm, area 750 cm² → AR ≈ 7.3,
+# pre-preg carbon, "Slalom light/medium", windfoil/kitefoil/wingfoil.
+# Span and area are PINNED; the optimizer only searches the section (camber /
+# thickness root→tip), chord distribution, twist, stab and trim.
+# -----------------------------------------------------------------------------
+zeeko_bullet750:
+  level: "advanced"         # slalom wing → livelier, thinner tip allowed
+  v_takeoff: 6.2            # m/s (12.0 kn) — sized for the HEAVIEST rider (90 kg + rig).
+                            # Owners report a very easy take-off, used from ~10 kn of wind;
+                            # an AR 7.3 / 750 cm² slalom wing typically lifts at 11-12 kn.
+  v_cruise: 12.5            # m/s (~24 kn) — light/medium slalom cruise; 1.25× = 30 kn top end
+
+  takeoff_cl_margin: 0.70   # same as windsurf race-freeride
+
+  pilotability_freq: [2.8, 3.8]
+
+  stab_load_range:
+    - -110.0
+    - -15.0
+
+  stab_control_authority_min_N_per_deg: 130
+
+  cg_range: [0.30, 0.45]
+  cg_ratio_init: 0.40
+
+  fuselage_length_bounds: [0.70, 1.00]
+  fuselage_length_init: 0.80
+
+  rig_mass_kg: 9            # sail + mast + boom
+
+  wing_airfoil: "naca2412"  # reference basis (overridable with FOIL_AIRFOIL)
+  wing_span_init:       0.740
+  wing_root_chord_init: 0.130
+  wing_span_bounds:       [0.735, 0.745]
+  wing_root_chord_bounds: [0.10, 0.18]
+  wing_area_bounds:       [0.0742, 0.0758]   # 750 cm² ± 1 %
+  wing_aspect_ratio_max:  7.6
+
+  stab_span:       0.400
+  stab_root_chord: 0.076
