@@ -1,0 +1,1 @@
+Hydrofoil Easy Rider Full Size (Mast and Lower) 31" Front Wingspan, 26" Mast, 16" Stabalizer by SoarFoils on Thingiverse: https://www.thingiverse.com/thing:6226236

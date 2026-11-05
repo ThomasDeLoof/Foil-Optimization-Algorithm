@@ -1,0 +1,282 @@
+name: freeride-wingfoil
+description: Conservative steady-state freeride sizing for a sub-30-knot foil
+use: wingfoil
+implemented_model: true
+
+references:
+  wing:
+    file: reference/925-wing/925.stl
+    span_m: 0.9216
+    projected_area_m2: 0.1262
+    note: STL units are not encoded; dimensions strongly indicate millimeters. The name likely refers to its approximately 925 mm span, not a 925 cm2 area. Projected mesh area is an estimate; planform/profile are simplified in the aerodynamic model.
+  stabilizer:
+    name: Zeeko Bullet 270
+    area_m2: 0.027
+    span_m: 0.43
+    note: Catalog dimensions; listed as compatible with Bullet 1200-class wings.
+  board:
+    file: reference/wing-foil-board-1.snapshot.9/0.png
+    length_m: 1.64592
+    width_m: 0.70612
+    thickness_m: 0.127
+    volume_m3: 0.09604
+    planform_area_m2: 0.9595
+    coordinate_origin: tail_on_stringer
+    annotated_stringer_stations_in: [0.0, 3.0, 6.0, 12.0, 18.0, 24.0, 33.2, 40.8, 46.8, 52.0, 56.0, 58.8, 64.8]
+    candidate_foil_track_stations_in: [33.2, 40.8]
+    candidate_foil_track_stations_m: [0.84328, 1.03632]
+    footstrap_insert_stations_m: null
+    mass_center_x_m: null
+    note: Drawing reports 5 ft 4.8 in x 27.8 in x 5 in, 96.04 L and 10.33 ft2. Length and annotated stations are transcribed from the drawing; the interpretation of individual insert/strap symbols must be verified. No board mass, mass CG or inertia is given.
+  wing_sail:
+    files:
+      - reference/wingfoil wing/full-wingfoil.3mf
+      - reference/wingfoil wing/canopy-1.3mf
+      - reference/wingfoil wing/canopy-2.3mf
+      - reference/wingfoil wing/centrepiece-with-handles.3mf
+      - reference/wingfoil wing/side-1.3mf
+      - reference/wingfoil wing/side-2.3mf
+    source_units: mm
+    full_model_bounds_m: [0.3051, 0.0361, 0.2025]
+    verified_full_size_scale: false
+    note: 3MF geometry is available, but its roughly 0.3-0.6 m model extents do not establish full-size scale or a loaded canopy profile. Shape-only reference; not yet used for sail aerodynamics.
+
+fluid:
+  density_kg_m3: 1020.0
+  dynamic_viscosity_pa_s: 0.001
+  temperature_k: 293.15
+  immersion_depth_m: 0.45
+  gravity_m_s2: 9.81
+
+rider:
+  nominal_mass_kg: 75.0
+  design_mass_kg: 90.0
+  board_mass_kg: 6.0
+  cg_fraction_bounds: [0.30, 0.50]
+  cg_fraction_initial: 0.40
+  stance_travel_m: 0.12
+
+mesh:
+  wing_sections: 5
+  stabilizer_sections: 3
+
+operating_points:
+  takeoff:
+    speed_m_s: 5.0
+    alpha_bounds_deg: [-2.0, 18.0]
+    maximum_cl: 0.95
+  cruise:
+    speed_m_s: 9.5
+    alpha_bounds_deg: [-4.0, 12.0]
+    target_load_factor_g: 1.0
+  high_speed:
+    speed_m_s: 13.5
+    alpha_bounds_deg: [-4.0, 12.0]
+    target_load_factor_g: 1.0
+
+maneuvers:
+  maximum_positive_g: 2.5
+  turn:
+    speed_m_s: 8.0
+    load_factor_g: 2.5
+  design_case: Sustained turn / maneuver envelope; approximate vertical load factor.
+  note: Not an impact or fatigue load case. Replace with measured or validated service loads before building.
+
+hydrodynamics:
+  solver: vortex_lattice
+  refinement_solver: lifting_line
+  lifting_line_spanwise_resolution: 1
+  vortex_lattice_spanwise_resolution: 4
+  vortex_lattice_chordwise_resolution: 2
+  refinement_spanwise_resolution: 2
+
+wing:
+  airfoil_baseline: naca2412
+  kulfan_weights_per_side: 8
+  kulfan_weight_delta: 0.015
+  thickness_ratio_bounds: [0.10, 0.16]
+  span_m: {initial: 0.922, bounds: [0.72, 1.15]}
+  root_chord_m: {initial: 0.235, bounds: [0.12, 0.28]}
+  taper_ratio: {initial: 0.15, bounds: [0.12, 0.80]}
+  tip_chord_min_m: 0.040
+  area_m2: [0.075, 0.17]
+  aspect_ratio: [6.0, 10.0]
+  sweep_deg: {initial: 5.0, bounds: [0.0, 15.0]}
+  anhedral_deg: 2.0
+  tip_washout_deg: {initial: -1.0, bounds: [-4.0, 0.0]}
+
+stabilizer:
+  airfoil: naca0012
+  root_chord_m: 0.09
+  taper_ratio: 0.40
+  incidence_deg: 0.0
+  sweep_deg: 3.0
+  dihedral_deg: 3.0
+  fuselage_offset_m: 0.10
+
+fuselage:
+  length_m: 0.75
+  diameter_m: 0.035
+  nose_x_m: 0.10
+
+mast:
+  reference: Fixed project baseline; drag estimated from a 2-D foil section
+  length_m: 0.82
+  chord_m: 0.12
+  thickness_ratio: 0.12
+
+structure:
+  material_safety_factor: 1.5
+  front_wing_load_share_factor: 1.15
+  shear_correction_factor: 0.833
+  spanwise_stations: 11
+  profile_samples: 21
+  smooth_max_beta: 1000.0
+  maximum_strength_utilization: 0.85
+  maximum_deflection_utilization: 0.90
+  minimum_root_core_thickness_m: 0.015
+  minimum_core_thickness_m: 0.003
+  maximum_skin_thickness_m: 0.0015
+  maximum_tip_deflection_ratio: 0.06
+  laminate:
+    description: 200 g/m2 carbon fabric, hand wet-layup without vacuum; four-ply [0/0/+45/-45] face laminate mirrored across the core.
+    fiber_areal_weight_kg_m2: 0.2
+    fiber_density_kg_m3: 1800.0
+    fiber_volume_fraction: 0.35
+    ply_angles_deg: [0.0, 0.0, 45.0, -45.0]
+    fiber_modulus_pa: 130000000000.0
+    transverse_modulus_pa: 8000000000.0
+    shear_modulus_pa: 5000000000.0
+    poisson_ratio: 0.30
+    screening_allowables_pa:
+      tension_pa: 250000000.0
+      compression_pa: 180000000.0
+  foam_core:
+    description: PVC structural foam, nominal 80 kg/m3 class
+    density_kg_m3: 80.0
+    elastic_modulus_pa: 100000000.0
+    shear_modulus_pa: 35000000.0
+    screening_shear_allowable_pa: 800000.0
+
+optimization:
+  model_size: small
+  starts: 3
+  max_iterations: 350
+  tolerance: 0.00001
+  high_speed_drag_weight: 0.25
+  takeoff_drag_weight: 0.10
+  profile_regularization_weight: 0.15
+  stance_authority_fraction: 0.85
+
+vpp:
+  enabled: true
+  speed_bounds_m_s: [1.0, 20.0]
+  max_iterations: 800
+  tolerance: 0.00001
+  max_leeway_deg: 15.0
+  max_heel_deg: 25.0
+  operating_points:
+    crosswind:
+      true_wind_speed_m_s: 8.0
+      true_wind_angle_deg: 90.0
+      initial_speed_m_s: 14.0
+      flight_height_m: 0.15
+    upwind_reach:
+      true_wind_speed_m_s: 10.0
+      true_wind_angle_deg: 55.0
+      initial_speed_m_s: 14.0
+      flight_height_m: 0.15
+  minimum_yaw_stability_Nm_per_rad: 10.0
+  minimum_roll_stability_Nm_per_rad: 10.0
+  sail:
+    type: inflatable_wing
+    area_m2: 5.0
+    span_m: 3.2
+    oswald_efficiency: 0.8
+    cl_alpha_per_rad: 4.5
+    cl_max: 1.15
+    cd0: 0.035
+    reynolds_chord_m: 0.65
+    max_alpha_deg: 25.0
+    center_of_effort_m: [-0.20, 0.0, 1.35]
+    reference_model_bounds_m: [0.3051, 0.0361, 0.2025]
+    assumed_full_size_leading_edge_m: 2.4
+    verified_full_size_scale: false
+  foil:
+    area_m2: 0.1262
+    span_m: 0.9216
+    oswald_efficiency: 0.85
+    cl_alpha_per_rad: 5.2
+    cl_max: 1.0
+    cd0: 0.012
+    reynolds_chord_m: 0.20
+    max_alpha_deg: 18.0
+    center_of_pressure_m: [0.20, 0.0, -0.45]
+  board:
+    mass_kg: 6.0
+    cg_position_m: [0.45, 0.0, 0.0]
+    underwater_drag_area_m2: 0.001
+    drag_center_m: [0.45, 0.0, 0.0]
+  air_mast:
+    enabled: false
+    exposed_length_m: 0.0
+    projected_width_m: 0.0
+    drag_coefficient: 0.0
+    segments: 1
+    x_m: 0.0
+    y_m: 0.0
+    base_height_m: 0.0
+  water_mast:
+    length_m: 0.82
+    ride_height_m: 0.15
+    ride_height_bounds_m: [0.08, 0.30]
+    projected_width_m: 0.12
+    airfoil: naca0012
+    sections: 5
+    spanwise_resolution: 2
+    x_m: 0.0
+    y_m: 0.0
+  rider:
+    mass_kg: 75.0
+    max_lateral_cg_shift_m: 0.45
+    max_fore_aft_cg_shift_m: 0.15
+    yaw_moment_authority_Nm: 40.0
+    pitch_moment_authority_Nm: 250.0
+    segment_mass_fractions:
+      trunk: 0.43
+      head: 0.07
+      upper_arms: 0.06
+      forearms_hands: 0.04
+      thighs: 0.20
+      shanks_feet: 0.20
+    segment_cg_positions_m:
+      trunk: [0.20, 0.0, 0.65]
+      head: [0.20, 0.0, 1.30]
+      upper_arms: [-0.05, 0.0, 0.85]
+      forearms_hands: [-0.25, 0.0, 1.05]
+      thighs: [0.12, 0.0, 0.25]
+      shanks_feet: [0.28, 0.0, 0.05]
+    segment_lean_factors:
+      trunk: 1.0
+      head: 1.0
+      upper_arms: 0.7
+      forearms_hands: 0.5
+      thighs: 0.2
+      shanks_feet: 0.0
+    segment_fore_aft_factors:
+      trunk: 1.0
+      head: 1.0
+      upper_arms: 0.8
+      forearms_hands: 0.5
+      thighs: 0.3
+      shanks_feet: 0.0
+    footstrap_positions_m: [[0.28, -0.20, 0.0], [0.28, 0.20, 0.0]]
+    handhold_positions_m: [[-0.35, -0.30, 1.20], [-0.35, 0.30, 1.20]]
+  assumptions:
+    - The 3MF is not full-size. A 2.4 m leading-edge scale assumption is recorded but not applied to derive area; the 5 m2 area remains a separate unverified placeholder, with no loaded canopy shape.
+    - Wing area, aerodynamic polar, foil polar, board drag, rider posture, and component mass properties are engineering placeholders, not measurements.
+    - This rigid finite-wing polar is not LLT on a measured membrane surface and does not model depowering, deformation, ventilation, waves, or transient rider control.
+    - The immersed mast is a rigid vertical NACA 0012 lifting-line model; it does not resolve free-surface, ventilation, foil-mast interference, or measured mast section geometry.
+    - Roll, pitch, and yaw control moments are lumped rider-authority limits, not forces derived from an articulated hand/foot model; their bounds are uncalibrated.
+    - The segmented rider is a mass-weighted CG screen with fixed segment locations and one lateral lean variable; it is not an articulated biomechanical or hand/foot reaction model.
+    - Quasi-static force and moment balance is exploratory and has not been validated against on-water measurements.

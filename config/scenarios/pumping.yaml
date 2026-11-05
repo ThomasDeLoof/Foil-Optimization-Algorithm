@@ -1,0 +1,46 @@
+name: pumping-reference-envelope
+description: Provisional operating envelope for a prone/standing pumping foil
+use: pumping
+implemented_model: false
+not_implemented_reason: Requires cyclic rider kinematics, inertial loads, and validated pumping lift histories.
+
+references:
+  front_wing: reference/pumping-foil/Pumping_foil.usdz
+  board: null
+  note: The USDZ has nested scale transforms; dimensions are not yet trusted. No board CAD or mass properties were found.
+
+fluid:
+  density_kg_m3: 1020.0
+  dynamic_viscosity_pa_s: 0.001
+  temperature_k: 293.15
+  immersion_depth_m: 0.45
+  gravity_m_s2: 9.81
+
+rider:
+  design_mass_kg: 85.0
+  board_and_foil_mass_kg: 8.0
+  note: Provisional reference mass only; replace with the intended rider and measured equipment.
+
+operating_points:
+  takeoff:
+    water_speed_m_s: 4.0
+    phase: takeoff
+    vertical_load_factor_g: 1.0
+  glide:
+    water_speed_m_s: 6.5
+    phase: unpowered_glide
+    vertical_load_factor_g: 1.0
+  pumping_cycle:
+    water_speed_range_m_s: [4.5, 8.0]
+    frequency_range_hz: [0.7, 1.5]
+    vertical_load_factor_range_g: [0.7, 2.5]
+
+maneuvers:
+  maximum_positive_g: 2.5
+  maximum_negative_g: 0.5
+  note: Preliminary envelope only; pumping-cycle force histories and fatigue spectrum are not represented.
+
+model_limits:
+  - This file records test conditions only; the optimizer refuses to run this scenario.
+  - Needs time-resolved foil forces, rider/board inertia, and measured or validated stroke kinematics.
+  - Do not use these assumptions as a structural certification load case.

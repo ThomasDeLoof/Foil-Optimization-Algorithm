@@ -1,0 +1,162 @@
+name: windsurf-freeride-reference-envelope
+description: Provisional operating envelope for an intermediate windsurf foil
+use: windsurf
+implemented_model: false
+not_implemented_reason: Foil geometry optimization is not implemented; the available VPP is an exploratory, assumption-driven equilibrium model only.
+
+references:
+  foil: reference/windsurf-race-hydrofoil/windfoil-Product1 v0_clean.stp
+  board: null
+  sail: null
+  note: The reference folder contains foil assets and pictures, but no board or sail/wing CAD with reliable scale.
+
+fluid:
+  density_kg_m3: 1020.0
+  dynamic_viscosity_pa_s: 0.001
+  temperature_k: 293.15
+  immersion_depth_m: 0.45
+  gravity_m_s2: 9.81
+
+operating_points:
+  takeoff:
+    water_speed_m_s: 5.0
+    true_wind_speed_m_s: 6.0
+    true_wind_angle_deg: 90.0
+    phase: displacement_to_foilborne
+  cruise:
+    water_speed_m_s: 9.0
+    true_wind_speed_m_s: 8.0
+    true_wind_angle_deg: 90.0
+    phase: steady_reach
+  high_speed:
+    water_speed_m_s: 13.0
+    true_wind_speed_m_s: 10.0
+    true_wind_angle_deg: 90.0
+    phase: steady_reach
+
+maneuvers:
+  maximum_positive_g: 2.0
+  maximum_negative_g: 0.5
+  turn:
+    speed_m_s: 9.0
+    load_factor_g: 2.0
+  note: Preliminary vertical load envelope only; no sail or impact load is included.
+
+model_limits:
+  - This file records test conditions only; the optimizer refuses to run this scenario.
+  - The exploratory VPP mode calculates apparent wind, rig loads, center-of-effort moments, and a simplified rider mass balance.
+  - It does not resolve mast-foot reactions, joint forces, board hydrodynamics, or measured windsurf sail polars.
+  - The wind and speed values are representative assumptions, not validated class limits.
+  - Do not use these assumptions as a structural certification load case.
+
+vpp:
+  enabled: true
+  speed_bounds_m_s: [1.0, 20.0]
+  max_iterations: 800
+  tolerance: 0.00001
+  max_leeway_deg: 15.0
+  max_heel_deg: 25.0
+  operating_points:
+    cruise:
+      true_wind_speed_m_s: 8.0
+      true_wind_angle_deg: 90.0
+      initial_speed_m_s: 14.0
+      flight_height_m: 0.15
+    high_wind:
+      true_wind_speed_m_s: 10.0
+      true_wind_angle_deg: 70.0
+      initial_speed_m_s: 14.0
+      flight_height_m: 0.15
+  # Sign-preserving placeholder until the foil geometry and yaw derivatives are measured.
+  minimum_yaw_stability_Nm_per_rad: 1.0
+  minimum_roll_stability_Nm_per_rad: 10.0
+  sail:
+    type: windsurf_membrane_sail
+    area_m2: 6.0
+    span_m: 4.4
+    oswald_efficiency: 0.8
+    cl_alpha_per_rad: 4.5
+    cl_max: 1.15
+    cd0: 0.035
+    reynolds_chord_m: 1.35
+    max_alpha_deg: 25.0
+    center_of_effort_m: [-0.20, 0.0, 2.0]
+    verified_geometry: false
+  foil:
+    area_m2: 0.10
+    span_m: 0.85
+    oswald_efficiency: 0.85
+    cl_alpha_per_rad: 5.2
+    cl_max: 1.0
+    cd0: 0.012
+    reynolds_chord_m: 0.16
+    max_alpha_deg: 18.0
+    center_of_pressure_m: [0.20, 0.0, -0.45]
+  board:
+    mass_kg: 10.0
+    cg_position_m: [0.45, 0.0, 0.0]
+    underwater_drag_area_m2: 0.001
+    drag_center_m: [0.45, 0.0, 0.0]
+  air_mast:
+    enabled: true
+    exposed_length_m: 3.2
+    projected_width_m: 0.05
+    drag_coefficient: 0.12
+    segments: 8
+    x_m: -0.20
+    y_m: 0.0
+    base_height_m: 0.25
+  water_mast:
+    length_m: 0.82
+    ride_height_m: 0.15
+    ride_height_bounds_m: [0.08, 0.30]
+    projected_width_m: 0.12
+    airfoil: naca0012
+    sections: 5
+    spanwise_resolution: 2
+    x_m: 0.0
+    y_m: 0.0
+  rider:
+    mass_kg: 75.0
+    max_lateral_cg_shift_m: 0.45
+    max_fore_aft_cg_shift_m: 0.15
+    yaw_moment_authority_Nm: 40.0
+    pitch_moment_authority_Nm: 250.0
+    segment_mass_fractions:
+      trunk: 0.43
+      head: 0.07
+      upper_arms: 0.06
+      forearms_hands: 0.04
+      thighs: 0.20
+      shanks_feet: 0.20
+    segment_cg_positions_m:
+      trunk: [0.20, 0.0, 0.65]
+      head: [0.20, 0.0, 1.30]
+      upper_arms: [-0.05, 0.0, 0.85]
+      forearms_hands: [-0.25, 0.0, 1.05]
+      thighs: [0.12, 0.0, 0.25]
+      shanks_feet: [0.28, 0.0, 0.05]
+    segment_lean_factors:
+      trunk: 1.0
+      head: 1.0
+      upper_arms: 0.7
+      forearms_hands: 0.5
+      thighs: 0.2
+      shanks_feet: 0.0
+    segment_fore_aft_factors:
+      trunk: 1.0
+      head: 1.0
+      upper_arms: 0.8
+      forearms_hands: 0.5
+      thighs: 0.3
+      shanks_feet: 0.0
+    footstrap_positions_m: [[0.28, -0.20, 0.0], [0.28, 0.20, 0.0]]
+    handhold_positions_m: [[-0.35, -0.30, 1.20], [-0.35, 0.30, 1.20]]
+  assumptions:
+    - The sail has no project geometry or measured polars; 6 m2, aspect ratio, polar, and center of effort are illustrative inputs only.
+    - The windsurf foil reference has no trusted area or scale in the scenario; foil dimensions and polar are placeholders.
+    - Board, rider, posture, and drag inputs are not measured; the generic segmented rider is not an articulated biomechanical model.
+    - The finite-wing polar is quasi-steady, not a measured membrane LLT model, and does not model depowering, sail deformation, ventilation, waves, or transient control.
+    - The immersed mast is a rigid vertical NACA 0012 lifting-line model; it does not resolve free-surface, ventilation, foil-mast interference, or measured mast section geometry.
+    - Roll, pitch, and yaw control moments are lumped rider-authority limits, not forces derived from an articulated hand/foot model; their bounds are uncalibrated.
+    - Quasi-static force and moment balance is exploratory and has not been validated against on-water measurements.
